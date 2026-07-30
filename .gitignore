@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# SQLite database (runtime data, not source)
+backend/vexon.db
+backend/vexon.db-shm
+backend/vexon.db-wal
+
+# Frontend build output
+frontend/dist/
+frontend/dist-ssr/
+
+# Claude Code local state
+.claude/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/

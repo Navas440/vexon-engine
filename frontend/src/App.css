@@ -1,0 +1,647 @@
+/* 📝 NOTA: Importação das fontes do Google. 
+   Orbitron = Títulos Sci-Fi
+   Rajdhani = Texto principal
+   Share Tech Mono = Fonte de terminal para números e inventário */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@400;500;700&family=Share+Tech+Mono&display=swap');
+
+/* 📝 NOTA: Reset universal para garantir que nenhum navegador coloque margens extras quebrando o seu layout. */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* 📝 NOTA: O seu "Dicionário de Cores". Mudar uma cor aqui altera o jogo inteiro. */
+:root {
+  --bg-void: #050507;
+  --panel-glass: rgba(10, 10, 15, 0.95);
+  --neon-purple: #b026ff;
+  --neon-cyan: #00f0ff;
+  --cyber-red: #ff003c;
+  --chrome-text: #e0e0e0;
+  --grid-line: rgba(0, 240, 255, 0.03);
+}
+
+/* 📝 NOTA: O fundo principal do jogo. Aquele efeito de "grade de simulação" (grid-line) é criado aqui usando linear-gradients cruzados. */
+body {
+  background-color: var(--bg-void);
+  color: var(--chrome-text);
+  font-family: 'Rajdhani', sans-serif;
+  background-image: 
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 30px 30px;
+  overflow: hidden; 
+}
+
+/* =========================================
+   SCROLLBAR CYBERPUNK
+========================================= */
+/* 📝 NOTA: Sobrescreve a barra de rolagem feia do Windows/Chrome por uma linha fina e roxa. */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); }
+::-webkit-scrollbar-thumb { background: var(--neon-purple); border-radius: 3px; }
+
+/* 📝 NOTA: O container mestre. Ele força o jogo a ocupar 100% da tela (100vh e 100vw) e usa display: flex para alinhar as três colunas lado a lado. */
+.vexon-container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  background: var(--bg-void);
+}
+
+/* =========================================
+   SIDEBARS (COM O FIX DO TOOLTIP)
+========================================= */
+/* 📝 NOTA: As colunas laterais. O 'overflow: visible' impede que o tooltip
+   da mochila seja cortado pela borda da sidebar. */
+.sidebar-left,
+.sidebar-right {
+
+  width: 280px;
+
+  background: var(--panel-glass);
+
+  padding: 20px;
+
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 20px;
+
+  overflow: visible; /* permite tooltip sair da caixa */
+
+  position: relative;
+
+  z-index: 10;
+}
+
+.sidebar-left {
+  border-right: 2px solid var(--neon-cyan);
+}
+
+.sidebar-right {
+  border-left: 2px solid var(--neon-purple);
+}
+
+/* =========================================
+   GAME AREA (COLUNA CENTRAL / CHAT)
+========================================= */
+/* 📝 NOTA: A coluna do meio (Chat). O 'flex: 1' faz ela ocupar
+   todo o espaço restante entre as duas sidebars. */
+
+.game-area {
+
+  flex: 1;
+
+  display: flex;
+
+  flex-direction: column;
+
+  background: rgba(0, 0, 0, 0.6);
+
+  padding: 20px;
+
+  position: relative;
+
+  z-index: 1;
+
+  overflow: hidden; /* evita vazamento de elementos */
+
+}
+
+/* =========================================
+   HUD, STATUS E DANO GLITCH
+========================================= */
+.hud-header {
+  border-bottom: 2px solid var(--neon-cyan);
+  padding-bottom: 15px;
+}
+
+.profile-info h2 {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 1.5rem;
+  letter-spacing: 3px;
+  text-shadow: 0 0 8px var(--neon-cyan);
+}
+
+.player-name {
+  color: var(--neon-purple);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.9rem;
+}
+
+.hp-bar { 
+  font-family: 'Orbitron', sans-serif;
+  color: var(--cyber-red); 
+  font-size: 1.1rem;
+  font-weight: bold;
+  text-shadow: 0 0 10px rgba(255, 0, 60, 0.5);
+  transition: all 0.3s ease;
+}
+
+.money-bar { 
+  font-family: 'Orbitron', sans-serif;
+  font-weight: bold;
+  color: #fce205; 
+  text-shadow: 0 0 10px rgba(252, 226, 5, 0.4);
+}
+
+/* O GLITCH DE TOMAR DANO */
+/* 📝 NOTA: Animação de erro. Ele move o texto rapidamente para os lados e cria sombras vermelhas e cianas para simular uma tela falhando. */
+@keyframes glitch-dano {
+  0% { transform: translate(0); text-shadow: none; }
+  20% { transform: translate(-3px, 3px); text-shadow: 2px 0 red, -2px 0 cyan; }
+  40% { transform: translate(-3px, -3px); text-shadow: -2px 0 red, 2px 0 cyan; }
+  60% { transform: translate(3px, 3px); text-shadow: 2px 0 red, -2px 0 cyan; }
+  80% { transform: translate(3px, -3px); text-shadow: -2px 0 red, 2px 0 cyan; }
+  100% { transform: translate(0); text-shadow: none; }
+}
+
+.dano-critico {
+  animation: glitch-dano 0.3s ease-in-out;
+  color: #ff4d4d !important; 
+}
+
+/* =========================================
+   RADAR DE AMEAÇAS (METAL GEAR STYLE)
+========================================= */
+.enemy-zone h3 {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.9rem;
+  color: var(--cyber-red);
+  letter-spacing: 2px;
+  border-bottom: 1px dashed rgba(255, 0, 60, 0.5);
+  padding-bottom: 5px;
+}
+
+/* 📝 NOTA: O 'clip-path' aqui é o que faz a caixa ter aquele canto inferior direito cortado na diagonal. */
+.enemy-card {
+  background: rgba(255, 0, 60, 0.05);
+  border: 1px solid rgba(255, 0, 60, 0.3);
+  border-left: 4px solid var(--cyber-red);
+  padding: 10px;
+  margin-top: 10px;
+  position: relative;
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+  animation: scanline 2s infinite linear;
+}
+
+.enemy-sprite {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 1.1rem;
+  color: #fff;
+  font-weight: bold;
+}
+
+.enemy-hp {
+  font-family: 'Share Tech Mono', monospace;
+  color: var(--cyber-red);
+  font-size: 0.95rem;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 4px 8px;
+  display: inline-block;
+  margin-top: 5px;
+  border: 1px solid rgba(255, 0, 60, 0.2);
+}
+
+/* 📝 NOTA: Faz a borda da caixa do monstro pulsar, imitando um radar apitando. */
+@keyframes scanline {
+  0% { box-shadow: 0 0 5px rgba(255, 0, 60, 0.2); }
+  50% { box-shadow: 0 0 15px rgba(255, 0, 60, 0.5); }
+  100% { box-shadow: 0 0 5px rgba(255, 0, 60, 0.2); }
+}
+
+/* =========================================
+   INVENTÁRIO E TOOLTIP (CORREÇÃO FINAL)
+========================================= */
+.inventory-item {
+  position: relative; /* Pai do tooltip */
+  background: rgba(176, 38, 255, 0.05);
+  border: 1px solid rgba(176, 38, 255, 0.2);
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: crosshair;
+  transition: 0.2s;
+}
+
+.inventory-item:hover {
+  background: rgba(176, 38, 255, 0.2);
+  border-color: var(--neon-purple);
+}
+
+.tooltip-card {
+  /* RESET E POSICIONAMENTO PARA FORA */
+  position: absolute;
+  top: 0;
+  right: 105%; /* Joga para a esquerda da sidebar, entrando na game-area */
+  
+  width: 250px;
+  background: #0a0f14;
+  border: 1px solid var(--neon-cyan);
+  border-left: 4px solid var(--neon-purple);
+  padding: 15px;
+  
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: all 0.2s ease-in-out;
+  z-index: 9999;
+  box-shadow: 0 0 30px rgba(0,0,0,0.8);
+}
+.inventory-item:hover .tooltip-card {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-10px); 
+}
+
+.tooltip-title { font-family: 'Orbitron', sans-serif; color: var(--neon-purple); margin-bottom: 8px; border-bottom: 1px solid #333; }
+.tooltip-stat { font-family: 'Share Tech Mono', sans-serif; font-size: 0.85rem; margin: 4px 0; color: #a0aab5;}
+.tooltip-stat span { color: var(--neon-cyan); font-weight: bold;}
+.tooltip-desc { font-style: italic; color: #777; font-size: 0.85rem; margin-top: 10px; }
+
+/* =========================================
+   HISTÓRICO DE DADOS (DICE LOG)
+========================================= */
+
+.dice-history {
+
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 8px;
+
+  margin-top: 10px;
+
+  max-height: 200px;
+
+  overflow-y: auto;
+
+  padding-right: 4px;
+
+}
+
+/* ITEM DO LOG */
+
+.dice-log-item {
+
+  position: relative;
+
+  background: linear-gradient(
+    135deg,
+    rgba(0,240,255,0.06),
+    rgba(0,0,0,0.6)
+  );
+
+  border: 1px solid rgba(0,240,255,0.35);
+
+  border-left: 4px solid var(--neon-cyan);
+
+  padding: 8px 12px;
+
+  display: flex;
+
+  justify-content: space-between;
+
+  align-items: center;
+
+  font-family: 'Share Tech Mono', monospace;
+
+  font-size: 0.9rem;
+
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    100% calc(100% - 6px),
+    calc(100% - 6px) 100%,
+    0 100%
+  );
+
+  animation: diceFade 0.35s ease-out;
+
+  overflow: hidden;
+
+  /* =========================================
+   CAIXA DE DANO (VERMELHO NEON)
+========================================= */
+.dice-log-item.dano-box {
+  border-left: 4px solid var(--cyber-red);
+  border-color: rgba(255, 0, 60, 0.35);
+  background: linear-gradient(
+    135deg,
+    rgba(255,0,60,0.06),
+    rgba(0,0,0,0.6)
+  );
+}
+
+/* Deixa a linha de scan vermelha também */
+.dice-log-item.dano-box::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255,0,60,0.25),
+    transparent
+  );
+}
+
+.dice-value.dano-val {
+  color: var(--cyber-red);
+  text-shadow: 0 0 8px rgba(255, 0, 60, 0.8);
+}
+}
+
+/* SCAN LINE */
+
+.dice-log-item::after {
+
+  content: "";
+
+  position: absolute;
+
+  left: -100%;
+
+  top: 0;
+
+  width: 100%;
+
+  height: 100%;
+
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(0,240,255,0.25),
+    transparent
+  );
+
+  animation: diceScan 4s infinite;
+
+}
+
+/* TEXTO */
+
+.dice-motive {
+
+  color: #a0aab5;
+
+  text-transform: uppercase;
+
+  font-size: 0.75rem;
+
+  letter-spacing: 1px;
+
+}
+
+.dice-value {
+
+  color: var(--neon-cyan);
+
+  font-weight: bold;
+
+  font-size: 1.15rem;
+
+  text-shadow: 0 0 6px var(--neon-cyan);
+
+}
+
+/* RESULTADO ALTO (CRÍTICO) */
+
+.dice-value.crit {
+
+  color: #fce205;
+
+  text-shadow: 0 0 10px #fce205;
+
+}
+
+/* ANIMAÇÕES */
+
+@keyframes diceFade {
+
+  from {
+
+    opacity: 0;
+
+    transform: translateY(10px);
+
+  }
+
+  to {
+
+    opacity: 1;
+
+    transform: translateY(0);
+
+  }
+
+}
+
+@keyframes diceScan {
+
+  0% { left: -100%; }
+
+  100% { left: 100%; }
+
+}
+
+/* =========================================
+   NARRATIVA, BALÕES DE CHAT E INPUT
+========================================= */
+/* 📝 NOTA: O 'overflow-y: auto' faz com que apenas as mensagens rolem para baixo, travando o botão de enviar no fundo. */
+.narrative-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  padding-right: 10px;
+}
+
+.log-entry {
+  padding: 15px 20px;
+  background-color: rgba(0, 240, 255, 0.03);
+  border-left: 3px solid var(--neon-cyan);
+  line-height: 1.6;
+  font-size: 1.1rem;
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%);
+}
+
+/* 📝 NOTA: Se a classe for '.player', a caixa muda de cor e se alinha à direita. O clip-path inverte o corte para o outro lado. */
+.log-entry.player {
+  border-left: none;
+  border-right: 3px solid var(--neon-purple);
+  background-color: rgba(176, 38, 255, 0.05);
+  text-align: right;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+}
+
+.log-entry.system {
+  animation: fadeIn 0.4s ease-out;
+}
+
+/* =========================================
+   INPUT E BOTÃO DE EXECUTAR
+========================================= */
+.action-footer {
+  padding-top: 15px;
+  border-top: 1px dashed rgba(0, 240, 255, 0.3);
+}
+
+.action-form { display: flex; gap: 15px; }
+
+.action-form input {
+  flex: 1;
+  padding: 15px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid var(--neon-cyan);
+  color: var(--neon-cyan);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 1.1rem;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.action-form input:focus { border-color: var(--neon-purple); box-shadow: 0 0 15px rgba(176, 38, 255, 0.3); }
+
+.action-form button {
+  padding: 0 30px;
+  background: transparent;
+  color: var(--neon-cyan);
+  font-family: 'Orbitron', sans-serif;
+  border: 1px solid var(--neon-cyan);
+  font-weight: bold;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.action-form button:hover { background: var(--neon-cyan); color: #000; box-shadow: 0 0 15px var(--neon-cyan); }
+
+/* =========================================
+   DADO GIGANTE (OVERLAY)
+========================================= */
+/* 📝 NOTA: 'position: fixed' solta o dado do fluxo da página e joga ele por cima de tudo. O 'transform: translate(-50%, -50%)' centraliza ele matematicamente na tela. */
+.dice-overlay {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 5rem;
+  z-index: 10000;
+  background: rgba(0,0,0,0.85);
+  padding: 40px;
+  border-radius: 15px;
+  border: 2px solid var(--neon-cyan);
+  box-shadow: 0 0 50px rgba(0, 240, 255, 0.5);
+  animation: bounceIn 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+}
+
+@keyframes bounceIn {
+  0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* DADO GIGANTE 3D */
+
+.dice-rolling{
+
+font-size:6rem;
+
+animation:spinDice 1s linear infinite;
+
+transform-style:preserve-3d;
+
+}
+
+@keyframes spinDice{
+
+0%{transform:rotateX(0) rotateY(0)}
+
+100%{transform:rotateX(360deg) rotateY(360deg)}
+
+}
+
+/* TEXTO CRÍTICO */
+
+.critical-text{
+
+color:#fce205;
+
+font-family:'Orbitron';
+
+font-size:2rem;
+
+margin-top:20px;
+
+text-shadow:0 0 20px #fce205;
+
+animation:criticalPulse 0.6s infinite alternate;
+
+}
+
+@keyframes criticalPulse{
+
+from{transform:scale(1)}
+
+to{transform:scale(1.2)}
+
+}
+
+/* DADO CRÍTICO */
+
+.dice-critical{
+
+color:#fce205;
+
+text-shadow:0 0 25px #fce205;
+
+animation:spinDice 0.5s linear infinite;
+
+}
+
+/* PARTÍCULAS */
+
+.particle-burst{
+
+position:absolute;
+
+width:200px;
+
+height:200px;
+
+background:
+
+radial-gradient(circle,#fce205 2px,transparent 2px);
+
+background-size:20px 20px;
+
+animation:explode 0.6s forwards;
+
+}
+
+@keyframes explode{
+
+0%{
+
+transform:scale(0.5);
+
+opacity:1;
+
+}
+
+100%{
+
+transform:scale(2);
+
+opacity:0;
+
+}
+
+}

@@ -1,0 +1,502 @@
+import db, {
+  getPlayer,
+  getActiveEntityByName,
+  getPlayerInventory,
+  getActiveEnemies,
+  awardPlayerXP,
+  consumeItem,
+  updatePlayerHP,
+  insertMonster,
+  spawnEntity,
+  logWorldEvent,
+  getOrCreateActiveSession,
+  addMessageToSession,
+  getWorldSnapshot,
+} from "../db/database.js";
+import { calculateAttack, processCombatRound } from "./combatEngine.js";
+import { rollD20Test }                          from "./skillEngine.js";
+import { processEntityTurn }                    from "./entityTurn.js";
+import { rollDice }                             from "./diceEngine.js";
+
+// ==========================================
+// CONFIGURAÇÃO DO OLLAMA
+// ==========================================
+
+const OLLAMA_URL   = process.env.OLLAMA_URL   || "http://localhost:11434";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "mistral";
+
+// Timeout para chamadas narrativas (podem ser mais longas que decisões de combate)
+const NARRATIVE_TIMEOUT = 30000;
+const INTENT_TIMEOUT    = 10000;
+
+// ==========================================
+// CLIENTE OLLAMA UNIFICADO
+// ==========================================
+
+/**
+ * Chama o Ollama com um array de mensagens.
+ * @param {object[]} messages   - [{ role, content }]
+ * @param {number}   timeout    - ms antes de abortar
+ * @param {object}   options    - opções extras de geração
+ */
+async function callOllama(messages, timeout = NARRATIVE_TIMEOUT, options = {}) {
+  const controller = new AbortController();
+  const timer      = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/chat`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      signal:  controller.signal,
+      body: JSON.stringify({
+        model:    OLLAMA_MODEL,
+        messages,
+        stream:   false,
+        options: {
+          temperature: 0.85,
+          top_p:       0.92,
+          num_predict: 400,
+          ...options,
+        },
+      }),
+    });
+
+    if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
+    const data = await res.json();
+    return data.message?.content ?? "";
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Extrai JSON seguro de uma resposta do Ollama.
+ * Modelos locais frequentemente adicionam texto em volta do JSON.
+ */
+function extrairJson(texto) {
+  const match = texto.replace(/```json/gi, "").replace(/```/g, "").match(/\{[\s\S]*?\}/);
+  if (!match) throw new Error("Nenhum JSON encontrado na resposta da IA.");
+  return JSON.parse(match[0]);
+}
+
+// ==========================================
+// CLASSIFICADOR DE INTENÇÃO (LOCAL, sem IA)
+// ==========================================
+
+// Mapa de palavras-chave para intents — evita chamar o Ollama só para classificar
+const INTENT_KEYWORDS = {
+  combate:    /\b(atac|golp|matar|mata|feri|bater|bato|cortar|corto|disparar|disparo|lanç|lança|chut|soco|espad|flech|bala)\w*/i,
+  magia:      /\b(lançar|conjur|feitiç|magia|encant|invocar|runas?)\w*/i,
+  inventario: /\b(usar|uso|beber|bebi|equip|inventário|mochila|bolsa|poção|item)\w*/i,
+  dialogo:    /\b(fal|diz|digo|conversar|perguntar|pergunto|negociar|negocio|cumprimentar)\w*/i,
+  explorar:   /\b(examinar|examino|olhar|olho|procurar|procuro|investigar|investigo|abrir|abro|entrar|entro|ir para|mover)\w*/i,
+  descansar:  /\b(descansar|descanso|dormir|durmo|acampar|acampo|curar|curo)\w*/i,
+};
+
+/**
+ * Classifica a intenção do jogador sem precisar da IA.
+ * Usa regex de palavras-chave — rápido e determinístico.
+ * Retorna { intent, alvo } onde alvo é extraído heuristicamente.
+ */
+function classificarIntencao(action) {
+  const texto = action.toLowerCase();
+
+  for (const [intent, regex] of Object.entries(INTENT_KEYWORDS)) {
+    if (regex.test(texto)) {
+      // Tenta extrair o alvo: última palavra substantiva após verbos de ação
+      const alvoMatch = texto.match(/(?:em|no|na|o|a|contra|para)\s+([\w\s]+?)(?:\s+com|\s+usando|$)/i);
+      const alvo      = alvoMatch ? alvoMatch[1].trim() : null;
+      return { intent, alvo };
+    }
+  }
+
+  return { intent: "livre", alvo: null };
+}
+
+// ==========================================
+// SISTEMA DE PROMPT DO RPG MASTER
+// ==========================================
+
+/**
+ * Monta o system prompt do Mestre com contexto completo do mundo.
+ * Esse prompt é enviado em TODA chamada narrativa.
+ */
+function buildMasterSystemPrompt(player, snapshot) {
+  const inimigosAtivos = snapshot.enemies
+    .filter(e => e.status !== "morto")
+    .map(e => `${e.nome_unico} (${e.hp_atual}/${e.hp_maximo} HP, status: ${e.status})`)
+    .join(", ") || "Nenhum";
+
+  return `Você é o Mestre de RPG do mundo sombrio de Vexon — um universo de fantasia brutal onde magia e tecnologia coexistem em ruínas.
+Seu estilo: narração imersiva, tensa, com consequências reais. Máximo de 3 parágrafos por resposta.
+Nunca quebre a imersão. Nunca mencione dados, modificadores ou mecânicas diretamente na narrativa.
+
+Estado atual do mundo:
+- Jogador: ${player.nome} | Nível ${player.nivel} | ${player.hp_atual}/${player.hp_maximo} HP | ${player.ouro} moedas
+- Inimigos na cena: ${inimigosAtivos}
+- Objetivo do jogador: ${player.objetivo || "Desconhecido"}`;
+}
+
+/**
+ * Envia uma mensagem narrativa ao Ollama e salva no histórico da sessão.
+ * Inclui as últimas N mensagens da sessão para manter contexto.
+ */
+async function narrar(sessao_id, systemPrompt, userPrompt, maxHistorico = 8) {
+  // Salva a ação do jogador no histórico
+  addMessageToSession(sessao_id, "user", userPrompt);
+
+  // Pega o histórico recente (sem o system prompt — adicionamos na frente)
+  const { getSessionMessages } = await import("../db/database.js");
+  const historico = getSessionMessages(sessao_id).slice(-maxHistorico);
+
+  const messages = [
+    { role: "system", content: systemPrompt },
+    ...historico,
+  ];
+
+  const resposta = await callOllama(messages, NARRATIVE_TIMEOUT);
+
+  // Salva a resposta do mestre no histórico
+  addMessageToSession(sessao_id, "assistant", resposta);
+
+  return resposta;
+}
+
+// ==========================================
+// HANDLERS DE INTENÇÃO
+// ==========================================
+
+// --- COMBATE ---
+async function handleCombate(jogador_id, player, alvoNome, action, sessao_id, systemPrompt) {
+  const inimigos = getActiveEnemies();
+
+  // Auto-targeting
+  let nomeFinal = alvoNome;
+  if (!nomeFinal || ["ele","ela","nele","nela","monstro","inimigo"].includes(nomeFinal.toLowerCase())) {
+    const vivos = inimigos.filter(e => e.status !== "morto");
+    if (vivos.length === 1)      nomeFinal = vivos[0].nome_unico;
+    else if (vivos.length > 1)   return resposta("Há vários inimigos aqui. Qual você quer atacar?", { erro: "multiplos_alvos" });
+    else                          return resposta("Não há ameaças visíveis aqui.", { erro: "sem_alvos" });
+  }
+
+  // Busca o alvo; spawn dinâmico se não existir
+  let alvo = getActiveEntityByName(nomeFinal);
+  if (!alvo) {
+    alvo = await spawnDinamico(nomeFinal, player, sessao_id, systemPrompt);
+    if (!alvo) return resposta(`Não foi possível localizar ou criar "${nomeFinal}".`, { erro: "alvo_nao_encontrado" });
+  }
+
+  // Testa manobra especial (se o jogador descreveu algo elaborado)
+  let temVantagem   = false;
+  let falhouTeste   = false;
+  let resultadoTeste = null;
+
+  const ehManobra = /\b(furtiv|esgueirar|saltar|escalar|desarmar|empurrar|flanquear|surpresa)\w*/i.test(action);
+  if (ehManobra) {
+    resultadoTeste = rollD20Test(jogador_id, "destreza", 13);
+    temVantagem    = resultadoTeste.sucesso;
+    falhouTeste    = !resultadoTeste.sucesso;
+  }
+
+  // Jogador falhou na manobra — inimigo contra-ataca primeiro
+  if (falhouTeste) {
+    const turnoInimigo = await processEntityTurn(alvo.id, jogador_id);
+    const promptFalha  = `O jogador tentou uma manobra (${action}) mas falhou feio (rolou ${resultadoTeste.total} vs dificuldade 13). Narrar a falha humilhante e a reação do ${alvo.nome_unico}.`;
+    const narrativa    = await narrar(sessao_id, systemPrompt, promptFalha);
+    return resposta(narrativa, { teste: resultadoTeste, acao_alvo: turnoInimigo });
+  }
+
+  // Ataque do jogador
+  const ataque = calculateAttack(jogador_id, alvo.id);
+
+  // Monta prompt narrativo com todos os fatos mecânicos
+  const promptAtaque = `O jogador ${player.nome} ${action}.
+Resultado mecânico: ${ataque.acertou ? `ACERTOU${ataque.critico ? " (CRÍTICO!)" : ""}` : "ERROU"}.
+${ataque.acertou ? `Dano causado: ${ataque.dano}. HP restante do ${alvo.nome_unico}: ${ataque.alvo.hp_restante}.` : ""}
+${ataque.alvo.morreu ? `${alvo.nome_unico} foi derrotado!` : ""}
+${temVantagem ? "A manobra foi bem executada, surpreendendo o inimigo." : ""}
+Narre o resultado sem citar números.`;
+
+  let narrativa = await narrar(sessao_id, systemPrompt, promptAtaque);
+
+  // Level up
+  if (ataque.alvo.morreu && ataque.recompensas) {
+    const evo = awardPlayerXP(jogador_id, ataque.recompensas.xp);
+    narrativa += `\n\n**+${ataque.recompensas.xp} XP | +${ataque.recompensas.ouro} moedas**`;
+    if (evo?.subiuDeNivel) {
+      narrativa += `\n\n⬆️ **NÍVEL ${evo.novoNivel}!** Você ficou mais poderoso. HP máximo: ${evo.hpMaximo}.`;
+    }
+  }
+
+  // Turno do inimigo (se sobreviveu)
+  let turnoInimigo = null;
+  if (!ataque.alvo.morreu) {
+    if (temVantagem && ataque.acertou) {
+      narrativa += `\n\n*${alvo.nome_unico} cambaleia com o golpe certeiro, incapaz de responder.*`;
+    } else {
+      turnoInimigo = await processEntityTurn(alvo.id, jogador_id);
+      if (turnoInimigo) {
+        const mech = turnoInimigo.dados_mecanicos;
+        const promptReacao = `${alvo.nome_unico} decidiu: ${turnoInimigo.decisao}. Pensamento interno: "${turnoInimigo.pensamento}".
+${mech.tipo === "ataque" ? `Atacou o jogador: ${mech.acertou ? `acertou, causando ${mech.dano_causado} de dano.` : "errou."}` : ""}
+${mech.tipo === "fuga" ? "A entidade fugiu usando o Sistema Nemesis." : ""}
+${mech.tipo === "dialogo" ? "A entidade pediu para dialogar." : ""}
+Narre a reação em 1 parágrafo curto.`;
+        narrativa += "\n\n" + await callOllama([
+          { role: "system", content: systemPrompt },
+          { role: "user",   content: promptReacao },
+        ], NARRATIVE_TIMEOUT, { num_predict: 150 });
+      }
+    }
+  }
+
+  return resposta(narrativa, {
+    ataque_jogador: ataque,
+    acao_alvo:      turnoInimigo,
+    teste:          resultadoTeste,
+  });
+}
+
+// --- MAGIA ---
+async function handleMagia(jogador_id, player, action, sessao_id, systemPrompt) {
+  // Teste de Inteligência ou Sabedoria para lançar magia
+  const atributoMagia = player.inteligencia >= player.sabedoria ? "inteligencia" : "sabedoria";
+  const resultadoTeste = rollD20Test(jogador_id, atributoMagia, 13);
+
+  const danoMagico = resultadoTeste.sucesso ? rollDice("2d6") + rollD20Test(jogador_id, atributoMagia, 0).total : 0;
+
+  const prompt = `O jogador tentou: "${action}".
+Teste de ${atributoMagia}: ${resultadoTeste.sucesso ? "SUCESSO" : "FALHA"} (rolou ${resultadoTeste.total}).
+${resultadoTeste.sucesso ? `A magia funcionou causando ${danoMagico} de dano arcano.` : "A magia falhou de forma espetacular ou saiu diferente do esperado."}
+Narre o efeito com linguagem mística do universo Vexon.`;
+
+  const narrativa = await narrar(sessao_id, systemPrompt, prompt);
+  return resposta(narrativa, { teste: resultadoTeste, dano_magico: danoMagico });
+}
+
+// --- TESTE DE PERÍCIA ---
+async function handleTeste(jogador_id, player, action, sessao_id, systemPrompt) {
+  // Detecta atributo mencionado na ação ou usa destreza como padrão
+  const atributos  = ["forca","destreza","resistencia","inteligencia","sabedoria","carisma"];
+  const atributo   = atributos.find(a => action.toLowerCase().includes(a)) ?? "destreza";
+  const dificuldade = 12;
+
+  const resultado = rollD20Test(jogador_id, atributo, dificuldade);
+
+  const prompt = `O jogador tentou: "${action}".
+Exigiu teste de ${atributo} (Dificuldade ${dificuldade}). Rolou ${resultado.total}.
+Resultado: ${resultado.sucesso ? "SUCESSO" : "FALHA"}.
+Narre a cena sem citar números ou mecânicas.`;
+
+  const narrativa = await narrar(sessao_id, systemPrompt, prompt);
+  return resposta(narrativa, { teste: resultado });
+}
+
+// --- DIÁLOGO ---
+async function handleDialogo(player, alvoNome, action, sessao_id, systemPrompt) {
+  const npc = alvoNome ? getActiveEntityByName(alvoNome) : null;
+
+  const prompt = npc
+    ? `O jogador ${player.nome} fala com ${npc.nome_unico}: "${action}".
+Personalidade do NPC: ${npc.nova_personalidade || npc.personalidade || "Neutro"}.
+Relação com o jogador: ${npc.relacao_com_jogador}.
+Objetivo do NPC: ${npc.objetivo}.
+Responda como o NPC em 1ª pessoa, mantendo sua personalidade. Depois, em nova linha, descreva brevemente a reação corporal/ambiental.`
+    : `O jogador diz: "${action}". Não há nenhum NPC específico identificado. Narre a ausência de resposta ou o ambiente reagindo.`;
+
+  const narrativa = await narrar(sessao_id, systemPrompt, prompt);
+  return resposta(narrativa, { npc: npc?.nome_unico ?? null });
+}
+
+// --- INVENTÁRIO ---
+async function handleInventario(jogador_id, player, alvoNome, sessao_id) {
+  if (!alvoNome || alvoNome === "nenhum") {
+    const inv = getPlayerInventory(jogador_id);
+    return resposta(
+      `📦 **Inventário de ${player.nome}**\n${inv.map(i => `- ${i.quantidade}x ${i.nome}${i.equipado ? " [equipado]" : ""}`).join("\n") || "Vazio."}\n💰 Ouro: ${player.ouro}`,
+      { inventario: inv, ouro: player.ouro }
+    );
+  }
+
+  const itemUsado = consumeItem(jogador_id, alvoNome);
+  if (!itemUsado) {
+    return resposta(`Você não tem "${alvoNome}" no inventário.`, { erro: "item_nao_encontrado" });
+  }
+
+  // Cura
+  const ehCura = /poção|cura|kit|bandagem|elixir/i.test(itemUsado.nome);
+  if (ehCura) {
+    const cura   = rollDice("1d8") + 4; // 1d8+4 de cura
+    const novoHp = Math.min(player.hp_maximo, player.hp_atual + cura);
+    updatePlayerHP(jogador_id, novoHp);
+    logWorldEvent("item", `${player.nome} usou ${itemUsado.nome} e recuperou ${cura} HP.`, [jogador_id]);
+    return resposta(
+      `Você usa **${itemUsado.nome}**. O líquido percorre suas veias e você recupera **${cura} HP** (${novoHp}/${player.hp_maximo}).`,
+      { item: itemUsado.nome, cura, hp_novo: novoHp }
+    );
+  }
+
+  return resposta(`Você usa **${itemUsado.nome}**.`, { item: itemUsado.nome });
+}
+
+// --- EXPLORAÇÃO ---
+async function handleExplorar(player, action, sessao_id, systemPrompt) {
+  const prompt = `O jogador ${player.nome} ${action}.
+Descreva o que ele encontra, vê ou sente. Detalhe o ambiente com elementos do universo Vexon.
+Se houver algo interessante (item, pista, perigo oculto), mencione sutilmente.`;
+  const narrativa = await narrar(sessao_id, systemPrompt, prompt);
+  return resposta(narrativa, { exploracao: true });
+}
+
+// --- DESCANSO ---
+async function handleDescanso(jogador_id, player, sessao_id, systemPrompt) {
+  const inimigos  = getActiveEnemies().filter(e => e.status !== "morto");
+  if (inimigos.length > 0) {
+    return resposta("Você não pode descansar com inimigos por perto!", { erro: "inimigos_proximos" });
+  }
+
+  const cura   = Math.floor(player.hp_maximo * 0.5); // Descanso cura 50% do HP máximo
+  const novoHp = Math.min(player.hp_maximo, player.hp_atual + cura);
+  updatePlayerHP(jogador_id, novoHp);
+
+  const prompt = `${player.nome} descansou em segurança e recuperou ${cura} HP (${novoHp}/${player.hp_maximo}). Narre o descanso brevemente.`;
+  const narrativa = await narrar(sessao_id, systemPrompt, prompt);
+  return resposta(narrativa, { cura_descanso: cura, hp_novo: novoHp });
+}
+
+// --- AÇÃO LIVRE ---
+async function handleLivre(player, action, sessao_id, systemPrompt) {
+  // Primeiro: verifica se a IA quer criar uma entidade (tool-use simples)
+  const promptVerifica = `O jogador de Vexon fez: "${action}".
+Se isso exige criar um monstro ou NPC, responda APENAS com JSON: { "criar": true, "tipo": "monstro"|"npc", "nome": string, "nivel": number }
+Se não, responda APENAS com: { "criar": false }`;
+
+  let criarEntidade = false;
+  try {
+    const raw   = await callOllama([{ role: "user", content: promptVerifica }], INTENT_TIMEOUT, { temperature: 0.2, num_predict: 80 });
+    const parsed = extrairJson(raw);
+    if (parsed.criar === true && parsed.nome) {
+      criarEntidade = parsed;
+    }
+  } catch { /* sem problema — fallback para narrativa livre */ }
+
+  if (criarEntidade) {
+    try {
+      const nivel = criarEntidade.nivel || 1;
+      const hp    = 10 + nivel * 8;
+      db.prepare(`
+        INSERT INTO entidades_vivas (tipo_entidade, nome_unico, hp_maximo, hp_atual, ca, nivel, status)
+        VALUES (?, ?, ?, ?, ?, ?, 'vivo')
+      `).run(criarEntidade.tipo, criarEntidade.nome, hp, hp, 10 + nivel, nivel);
+      logWorldEvent("spawn", `${criarEntidade.nome} emergiu no mundo (ação livre).`, []);
+    } catch (e) {
+      console.error("[Livre] Erro ao criar entidade:", e.message);
+    }
+  }
+
+  const narrativa = await narrar(sessao_id, systemPrompt, action);
+  return resposta(narrativa, { acao_livre: true });
+}
+
+// ==========================================
+// SPAWN DINÂMICO (quando o alvo não existe)
+// ==========================================
+
+async function spawnDinamico(nome, player, sessao_id, systemPrompt) {
+  console.log(`[Spawn] Criando "${nome}" dinamicamente...`);
+  try {
+    const nivel = player.nivel;
+    const hp    = 10 + nivel * 8;
+    db.prepare(`
+      INSERT INTO entidades_vivas (tipo_entidade, nome_unico, hp_maximo, hp_atual, ca, nivel, status)
+      VALUES ('monstro', ?, ?, ?, ?, ?, 'vivo')
+    `).run(nome, hp, hp, 10 + nivel, nivel);
+    logWorldEvent("spawn", `${nome} apareceu (spawn dinâmico por combate).`, []);
+    return getActiveEntityByName(nome);
+  } catch (e) {
+    console.error("[Spawn] Falha:", e.message);
+    return null;
+  }
+}
+
+// ==========================================
+// HELPER DE RESPOSTA PADRONIZADA
+// ==========================================
+
+function resposta(narrativa, dados_mecanicos = {}) {
+  return { narrativa, dados_mecanicos };
+}
+
+// ==========================================
+// FUNÇÃO PRINCIPAL
+// ==========================================
+
+/**
+ * Processa a ação do jogador e retorna narrativa + dados mecânicos.
+ * Ponto de entrada central do jogo.
+ *
+ * @param {number} jogador_id
+ * @param {string} action      - Texto livre da ação do jogador
+ * @returns {Promise<object>}
+ */
+export async function processPlayerAction(jogador_id, action) {
+  const player = getPlayer(jogador_id);
+  if (!player) throw new Error(`Jogador ${jogador_id} não encontrado.`);
+  if (!action?.trim()) throw new Error("Ação vazia.");
+
+  // Sessão ativa do jogador (contexto do Ollama)
+  const sessao   = getOrCreateActiveSession(jogador_id);
+  const sessao_id = sessao.id;
+
+  // Snapshot do mundo para o system prompt
+  const snapshot     = getWorldSnapshot(jogador_id);
+  const systemPrompt = buildMasterSystemPrompt(player, snapshot);
+
+  // Classifica a intenção localmente (sem IA — rápido e gratuito)
+  const { intent, alvo } = classificarIntencao(action);
+
+  // Despacha para o handler correto
+  let resultado;
+  try {
+    switch (intent) {
+      case "combate":   resultado = await handleCombate(jogador_id, player, alvo, action, sessao_id, systemPrompt);   break;
+      case "magia":     resultado = await handleMagia(jogador_id, player, action, sessao_id, systemPrompt);           break;
+      case "teste":     resultado = await handleTeste(jogador_id, player, action, sessao_id, systemPrompt);           break;
+      case "dialogo":   resultado = await handleDialogo(player, alvo, action, sessao_id, systemPrompt);               break;
+      case "inventario":resultado = await handleInventario(jogador_id, player, alvo, sessao_id);                      break;
+      case "explorar":  resultado = await handleExplorar(player, action, sessao_id, systemPrompt);                    break;
+      case "descansar": resultado = await handleDescanso(jogador_id, player, sessao_id, systemPrompt);                break;
+      default:          resultado = await handleLivre(player, action, sessao_id, systemPrompt);
+    }
+  } catch (err) {
+    console.error(`[GameEngine] Erro no handler "${intent}":`, err.message);
+    resultado = resposta(
+      "O éter distorceu sua ação. Algo falhou nas camadas do mundo.",
+      { erro: err.message }
+    );
+  }
+
+  // ==========================================
+  // RETORNO FINAL COM STATUS ATUALIZADO DO HUD
+  // ==========================================
+  const statusFinal = getPlayer(jogador_id);
+
+  return {
+    narrativa:       resultado.narrativa,
+    dados_mecanicos: {
+      ...resultado.dados_mecanicos,
+      intent,
+      // Estado atualizado do jogador para o HUD React
+      player: {
+        hp:           statusFinal.hp_atual,
+        hp_maximo:    statusFinal.hp_maximo,
+        ouro:         statusFinal.ouro,
+        nivel:        statusFinal.nivel,
+        xp:           statusFinal.xp,
+        xp_necessario: statusFinal.xp_necessario,
+      },
+      inventario: getPlayerInventory(jogador_id),
+      inimigos:   getActiveEnemies(),
+    },
+  };
+}

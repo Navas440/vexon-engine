@@ -1,0 +1,19 @@
+{
+  "name": "vexon-engine",
+  "version": "1.0.0",
+  "description": "Motor de RPG Narrativo Baseado em LLM - Universo Vexon",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "better-sqlite3": "^12.6.2",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "sqlite3": "^5.1.7"
+  }
+}
