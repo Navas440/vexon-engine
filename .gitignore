@@ -10,6 +10,7 @@ node_modules/
 backend/vexon.db
 backend/vexon.db-shm
 backend/vexon.db-wal
+backend/*.bak
 
 # Frontend build output
 frontend/dist/

@@ -3,7 +3,6 @@ import db, {
   getActiveEntityByName,
   getPlayerInventory,
   getActiveEnemies,
-  awardPlayerXP,
   consumeItem,
   updatePlayerHP,
   insertMonster,
@@ -17,6 +16,9 @@ import { calculateAttack, processCombatRound } from "./combatEngine.js";
 import { rollD20Test }                          from "./skillEngine.js";
 import { processEntityTurn }                    from "./entityTurn.js";
 import { rollDice }                             from "./diceEngine.js";
+import { getLojas, getEstoqueLoja, comprarItem, venderItem } from "./economyEngine.js";
+import { iniciarViagem, getLocaisConectados, getLocaisAtivos, getPosicaoJogador } from "./locationEngine.js";
+import { getFaccaoPorNome, modificarReputacao } from "./factionEngine.js";
 
 // ==========================================
 // CONFIGURAÇÃO DO OLLAMA
@@ -87,6 +89,10 @@ function extrairJson(texto) {
 const INTENT_KEYWORDS = {
   combate:    /\b(atac|golp|matar|mata|feri|bater|bato|cortar|corto|disparar|disparo|lanç|lança|chut|soco|espad|flech|bala)\w*/i,
   magia:      /\b(lançar|conjur|feitiç|magia|encant|invocar|runas?)\w*/i,
+  // comercio/viajar precisam vir antes de inventario/dialogo/explorar, cujos regexes
+  // também capturariam palavras como "poção", "negociar" e "ir para".
+  comercio:   /\b(compr|vend|loja|mercado|comerci)\w*/i,
+  viajar:     /\b(viaj|ir\s+para|ir\s+até|partir\s+para|seguir\s+para)\w*/i,
   inventario: /\b(usar|uso|beber|bebi|equip|inventário|mochila|bolsa|poção|item)\w*/i,
   dialogo:    /\b(fal|diz|digo|conversar|perguntar|pergunto|negociar|negocio|cumprimentar)\w*/i,
   explorar:   /\b(examinar|examino|olhar|olho|procurar|procuro|investigar|investigo|abrir|abro|entrar|entro|ir para|mover)\w*/i,
@@ -215,17 +221,27 @@ Resultado mecânico: ${ataque.acertou ? `ACERTOU${ataque.critico ? " (CRÍTICO!)
 ${ataque.acertou ? `Dano causado: ${ataque.dano}. HP restante do ${alvo.nome_unico}: ${ataque.alvo.hp_restante}.` : ""}
 ${ataque.alvo.morreu ? `${alvo.nome_unico} foi derrotado!` : ""}
 ${temVantagem ? "A manobra foi bem executada, surpreendendo o inimigo." : ""}
+${ataque.habilidade_usada ? `O jogador usou sua habilidade de assinatura "${ataque.habilidade_usada}" (dano ${ataque.tipo_dano}).` : ""}
 Narre o resultado sem citar números.`;
 
   let narrativa = await narrar(sessao_id, systemPrompt, promptAtaque);
 
-  // Level up
+  // Level up (XP/ouro já foram premiados dentro de calculateAttack — só narra aqui)
   if (ataque.alvo.morreu && ataque.recompensas) {
-    const evo = awardPlayerXP(jogador_id, ataque.recompensas.xp);
+    const evo = ataque.recompensas.evolucao;
     narrativa += `\n\n**+${ataque.recompensas.xp} XP | +${ataque.recompensas.ouro} moedas**`;
     if (evo?.subiuDeNivel) {
       narrativa += `\n\n⬆️ **NÍVEL ${evo.novoNivel}!** Você ficou mais poderoso. HP máximo: ${evo.hpMaximo}.`;
     }
+  }
+
+  // Reputação de facção — abater um membro de uma facção conhecida piora a relação com ela.
+  // Facções não cadastradas (ex.: "Eclipsa") simplesmente não têm efeito aqui.
+  if (ataque.alvo.morreu && alvo.faccao) {
+    try {
+      const faccaoAlvo = getFaccaoPorNome(alvo.faccao);
+      if (faccaoAlvo) modificarReputacao(jogador_id, faccaoAlvo.id, -5);
+    } catch { /* reputação é um bônus narrativo — não deve derrubar o combate */ }
   }
 
   // Turno do inimigo (se sobreviveu)
@@ -337,6 +353,92 @@ async function handleInventario(jogador_id, player, alvoNome, sessao_id) {
   }
 
   return resposta(`Você usa **${itemUsado.nome}**.`, { item: itemUsado.nome });
+}
+
+// --- COMÉRCIO ---
+async function handleComercio(jogador_id, player, action) {
+  const textoLower = action.toLowerCase();
+  const modoVenda   = /\bvend/i.test(textoLower);
+
+  const posicao     = getPosicaoJogador(jogador_id);
+  const localAtual   = posicao?.local_atual;
+  const todasLojas   = getLojas();
+  const lojasLocais  = localAtual
+    ? todasLojas.filter(l => l.local && (l.local.includes(localAtual) || localAtual.includes(l.local)))
+    : [];
+  const lojas = lojasLocais.length > 0 ? lojasLocais : todasLojas;
+
+  if (lojas.length === 0) {
+    return resposta("Não há nenhuma loja por perto.", { lojas: [] });
+  }
+
+  if (modoVenda) {
+    const inv     = getPlayerInventory(jogador_id);
+    const itemInv = inv.find(i => textoLower.includes(i.nome.toLowerCase()));
+    if (!itemInv) {
+      return resposta(
+        `Vender o quê? Seu inventário: ${inv.map(i => i.nome).join(", ") || "vazio"}.`,
+        { inventario: inv }
+      );
+    }
+    try {
+      const resultado = venderItem(jogador_id, lojas[0].id, itemInv.id, 1);
+      return resposta(
+        `Você vendeu **${resultado.item}** para ${lojas[0].nome} por **${resultado.preco_total} moedas**.`,
+        { venda: resultado }
+      );
+    } catch (e) {
+      return resposta(`Não foi possível vender: ${e.message}`, { erro: e.message });
+    }
+  }
+
+  // Modo compra
+  const loja     = lojas[0];
+  const estoque  = getEstoqueLoja(loja.id, jogador_id);
+  const itemLoja = estoque.find(i => textoLower.includes(i.nome.toLowerCase()));
+
+  if (!itemLoja) {
+    const lista = estoque.map(i => `${i.nome} (${i.preco_dinamico?.ouro ?? i.preco_loja_ouro} po)`).join(", ") || "nada à venda";
+    return resposta(
+      `🏪 **${loja.nome}**\nÀ venda: ${lista}\n💰 Seu ouro: ${player.ouro}`,
+      { loja, estoque }
+    );
+  }
+
+  try {
+    const resultado = comprarItem(jogador_id, loja.id, itemLoja.item_id, 1);
+    return resposta(`Você comprou **${resultado.item}** de ${loja.nome} por ${resultado.preco_total} moedas.`, { compra: resultado });
+  } catch (e) {
+    return resposta(`Não foi possível comprar: ${e.message}`, { erro: e.message });
+  }
+}
+
+// --- VIAGEM ---
+async function handleViagem(jogador_id, alvoNome) {
+  const posicao    = getPosicaoJogador(jogador_id);
+  const localAtual = posicao?.local_atual;
+
+  if (!alvoNome) {
+    const conectados = getLocaisConectados(localAtual);
+    const lista = conectados.map(l => l.nome).join(", ") || "nenhum local conectado conhecido";
+    return resposta(`📍 Você está em **${localAtual}**.\nLocais alcançáveis: ${lista}`, { local_atual: localAtual, conectados });
+  }
+
+  // classificarIntencao entrega o alvo em minúsculas, mas getLocalByNome faz
+  // correspondência exata — resolve o nome real (com caixa correta) antes de viajar.
+  const destinoReal = getLocaisAtivos().find(
+    l => l.nome.toLowerCase().includes(alvoNome.toLowerCase())
+  )?.nome ?? alvoNome;
+
+  try {
+    const viagem = iniciarViagem(jogador_id, destinoReal);
+    return resposta(
+      `Você parte de ${localAtual} rumo a **${destinoReal}**. Chegada estimada em ${viagem.tempo_viagem_min ?? "alguns"} minutos.`,
+      { viagem }
+    );
+  } catch (e) {
+    return resposta(`Não foi possível viajar: ${e.message}`, { erro: e.message });
+  }
 }
 
 // --- EXPLORAÇÃO ---
@@ -463,6 +565,8 @@ export async function processPlayerAction(jogador_id, action) {
       case "magia":     resultado = await handleMagia(jogador_id, player, action, sessao_id, systemPrompt);           break;
       case "teste":     resultado = await handleTeste(jogador_id, player, action, sessao_id, systemPrompt);           break;
       case "dialogo":   resultado = await handleDialogo(player, alvo, action, sessao_id, systemPrompt);               break;
+      case "comercio":  resultado = await handleComercio(jogador_id, player, action);                                 break;
+      case "viajar":    resultado = await handleViagem(jogador_id, alvo);                                             break;
       case "inventario":resultado = await handleInventario(jogador_id, player, alvo, sessao_id);                      break;
       case "explorar":  resultado = await handleExplorar(player, action, sessao_id, systemPrompt);                    break;
       case "descansar": resultado = await handleDescanso(jogador_id, player, sessao_id, systemPrompt);                break;
@@ -486,17 +590,16 @@ export async function processPlayerAction(jogador_id, action) {
     dados_mecanicos: {
       ...resultado.dados_mecanicos,
       intent,
-      // Estado atualizado do jogador para o HUD React
-      player: {
-        hp:           statusFinal.hp_atual,
-        hp_maximo:    statusFinal.hp_maximo,
-        ouro:         statusFinal.ouro,
-        nivel:        statusFinal.nivel,
-        xp:           statusFinal.xp,
-        xp_necessario: statusFinal.xp_necessario,
-      },
-      inventario: getPlayerInventory(jogador_id),
-      inimigos:   getActiveEnemies(),
+      // Estado atualizado do jogador para o HUD React (campos soltos — é o formato que o frontend lê)
+      hp:            statusFinal.hp_atual,
+      hp_maximo:     statusFinal.hp_maximo,
+      ouro:          statusFinal.ouro,
+      nivel:         statusFinal.nivel,
+      xp:            statusFinal.xp,
+      xp_necessario: statusFinal.xp_necessario,
+      habilidades:   statusFinal.habilidades,
+      inventario:    getPlayerInventory(jogador_id),
+      inimigos:      getActiveEnemies(),
     },
   };
 }

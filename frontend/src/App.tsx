@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react';
 import './App.css';
+import CharacterCreation from './CharacterCreation';
 
 function App() {
+  const [view, setView] = useState<'loading' | 'create' | 'hud'>('loading');
+  const [jogadorId, setJogadorId] = useState<number | null>(null);
+
   const [isCritical, setIsCritical] = useState(false);
   const [isFailure, setIsFailure] = useState(false);
   const [inputStr, setInputStr] = useState('');
@@ -24,16 +28,39 @@ function App() {
   const [isRolling, setIsRolling] = useState(false);
   const [diceResult, setDiceResult] = useState(0);
 
+  const [playerInfo, setPlayerInfo] = useState<any | null>(null);
+  const [classeInfo, setClasseInfo] = useState<any | null>(null);
+  const [showFicha, setShowFicha] = useState(false);
+
   // ==========================================
-  // EFEITO DE AUTO-SCAN INICIAL
+  // VERIFICA SE JÁ EXISTE UM PERSONAGEM AO ABRIR O APP
   // ==========================================
   useEffect(() => {
+    fetch('http://localhost:3000/api/players')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.players && data.players.length > 0) {
+          setJogadorId(data.players[0].id);
+          setView('hud');
+        } else {
+          setView('create');
+        }
+      })
+      .catch(() => setView('create'));
+  }, []);
+
+  // ==========================================
+  // EFEITO DE AUTO-SCAN INICIAL (só roda quando já há personagem)
+  // ==========================================
+  useEffect(() => {
+    if (view !== 'hud' || jogadorId == null) return;
+
     const autoScanHUD = async () => {
       try {
         const response = await fetch('http://localhost:3000/api/action', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ jogador_id: 1, action: "inventario" }) 
+          body: JSON.stringify({ jogador_id: jogadorId, action: "inventario" })
         });
 
         const data = await response.json();
@@ -43,11 +70,11 @@ function App() {
           if (data.dados_mecanicos.nivel !== undefined) setNivel(data.dados_mecanicos.nivel);
           if (data.dados_mecanicos.xp !== undefined) setXp(data.dados_mecanicos.xp);
           if (data.dados_mecanicos.xp_necessario !== undefined) setXpNecessario(data.dados_mecanicos.xp_necessario);
-          
+
           if (data.dados_mecanicos.habilidades) {
             try {
-              const skills = typeof data.dados_mecanicos.habilidades === 'string' 
-                ? JSON.parse(data.dados_mecanicos.habilidades) 
+              const skills = typeof data.dados_mecanicos.habilidades === 'string'
+                ? JSON.parse(data.dados_mecanicos.habilidades)
                 : data.dados_mecanicos.habilidades;
               setHabilidades(skills);
             } catch(e) { console.error("Erro lendo habilidades"); }
@@ -63,14 +90,37 @@ function App() {
     };
 
     autoScanHUD();
-  }, []); 
+  }, [view, jogadorId]);
+
+  // ==========================================
+  // CARREGA FICHA COMPLETA DO PERSONAGEM (nome, classe, atributos, identidade)
+  // ==========================================
+  useEffect(() => {
+    if (view !== 'hud' || jogadorId == null) return;
+
+    fetch(`http://localhost:3000/api/player/${jogadorId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.sucesso && data.player) setPlayerInfo(data.player);
+      })
+      .catch(() => {});
+
+    fetch('http://localhost:3000/api/classes')
+      .then((r) => r.json())
+      .then((data) => setClasseInfo(data.classes ?? []))
+      .catch(() => {});
+  }, [view, jogadorId]);
+
+  const classeAtual = Array.isArray(classeInfo)
+    ? classeInfo.find((c: any) => c.id === playerInfo?.classe)
+    : null;
 
   // ==========================================
   // AÇÃO DO JOGADOR
   // ==========================================
   const handleAction = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputStr.trim()) return;
+    if (!inputStr.trim() || jogadorId == null) return;
 
     const textoAcao = inputStr;
     const loadingId = Date.now() + 1;
@@ -83,7 +133,7 @@ function App() {
       const response = await fetch('http://localhost:3000/api/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jogador_id: 1, action: textoAcao }) 
+        body: JSON.stringify({ jogador_id: jogadorId, action: textoAcao })
       });
 
       const data = await response.json();
@@ -186,15 +236,36 @@ function App() {
     }
   };
 
+  if (view === 'loading') {
+    return <div className="vexon-loading">INICIALIZANDO SISTEMA VEXON...</div>;
+  }
+
+  if (view === 'create') {
+    return (
+      <CharacterCreation
+        onCreated={(id) => {
+          setJogadorId(id);
+          setView('hud');
+        }}
+      />
+    );
+  }
+
   return (
     <div className="vexon-container">
-      
+
       {/* SIDEBAR ESQUERDA: STATUS E RADAR */}
       <aside className="sidebar-left">
         <header className="hud-header">
           <div className="profile-info">
             <h2>VEXON // OS</h2>
-            <span className="player-name">USUÁRIO: LEONARDO</span>
+            <span className="player-name">
+              USUÁRIO: {playerInfo?.nome?.toUpperCase() ?? '...'}
+              {classeAtual ? ` — ${classeAtual.nome.toUpperCase()}` : ''}
+            </span>
+            <button type="button" className="ficha-btn" onClick={() => setShowFicha(true)}>
+              📋 FICHA DO PERSONAGEM
+            </button>
           </div>
           <div className={`hp-bar ${isTakingDamage ? 'dano-critico' : ''}`}>
             VIT: [ {hp} / {hpMaximo} ]
@@ -303,6 +374,107 @@ function App() {
           </div>
         </section>
       </aside>
+
+      {/* FICHA COMPLETA DO PERSONAGEM */}
+      {showFicha && (
+        <div className="ficha-overlay" onClick={() => setShowFicha(false)}>
+          <div className="ficha-modal" onClick={(e) => e.stopPropagation()}>
+            <header className="ficha-header">
+              <h2>{playerInfo?.nome ?? '...'}</h2>
+              <button type="button" className="ficha-fechar" onClick={() => setShowFicha(false)}>✕</button>
+            </header>
+
+            {classeAtual && (
+              <div className="ficha-classe-nome">{classeAtual.nome} — Nível {nivel}</div>
+            )}
+
+            <section className="ficha-secao">
+              <h3>IDENTIDADE</h3>
+              <div className="ficha-grid">
+                <div><span className="ficha-label">Idade:</span> {playerInfo?.idade ?? '—'}</div>
+                <div><span className="ficha-label">Gênero:</span> {playerInfo?.genero ?? '—'}</div>
+              </div>
+              {playerInfo?.aparencia_fisica && (
+                <p className="ficha-texto"><span className="ficha-label">Aparência:</span> {playerInfo.aparencia_fisica}</p>
+              )}
+              {playerInfo?.personalidade && (
+                <p className="ficha-texto"><span className="ficha-label">Personalidade:</span> {playerInfo.personalidade}</p>
+              )}
+            </section>
+
+            <section className="ficha-secao">
+              <h3>STATUS</h3>
+              <div className="ficha-grid">
+                <div><span className="ficha-label">HP:</span> {hp} / {hpMaximo}</div>
+                <div><span className="ficha-label">CA:</span> {playerInfo?.ca ?? '—'}</div>
+                <div><span className="ficha-label">Nível:</span> {nivel}</div>
+                <div><span className="ficha-label">XP:</span> {xp} / {xpNecessario}</div>
+                <div><span className="ficha-label">Ouro:</span> {dinheiro}</div>
+              </div>
+            </section>
+
+            <section className="ficha-secao">
+              <h3>ATRIBUTOS</h3>
+              <div className="ficha-grid ficha-atributos">
+                <div><span className="ficha-label">Força:</span> {playerInfo?.forca ?? '—'}</div>
+                <div><span className="ficha-label">Destreza:</span> {playerInfo?.destreza ?? '—'}</div>
+                <div><span className="ficha-label">Resistência:</span> {playerInfo?.resistencia ?? '—'}</div>
+                <div><span className="ficha-label">Inteligência:</span> {playerInfo?.inteligencia ?? '—'}</div>
+                <div><span className="ficha-label">Sabedoria:</span> {playerInfo?.sabedoria ?? '—'}</div>
+                <div><span className="ficha-label">Carisma:</span> {playerInfo?.carisma ?? '—'}</div>
+              </div>
+            </section>
+
+            {classeAtual && (
+              <section className="ficha-secao">
+                <h3>CLASSE, HABILIDADES & BUFFS</h3>
+                <p className="ficha-texto">{classeAtual.descricao}</p>
+                <ul className="ficha-habilidades">
+                  {classeAtual.habilidades_nivel1?.map((h: any) => (
+                    <li key={h.nome}><strong>{h.nome}:</strong> {h.descricao}</li>
+                  ))}
+                </ul>
+                <div className="ficha-buffs">
+                  {classeAtual.ataque_assinatura && (
+                    <span className="buff-badge">
+                      ⚡ Ataque de assinatura: {classeAtual.ataque_assinatura.nome_habilidade} ({classeAtual.ataque_assinatura.dado_dano} {classeAtual.ataque_assinatura.tipo_dano})
+                    </span>
+                  )}
+                  {classeAtual.bonus_dano_dado && (
+                    <span className="buff-badge">
+                      🗡️ Bônus de dano fixo: +{classeAtual.bonus_dano_dado} ({classeAtual.bonus_dano_tipo})
+                    </span>
+                  )}
+                  {classeAtual.ca_formula && (
+                    <span className="buff-badge">🛡️ CA especial de classe ativa</span>
+                  )}
+                  {!classeAtual.ataque_assinatura && !classeAtual.bonus_dano_dado && !classeAtual.ca_formula && (
+                    <span className="buff-badge buff-neutro">Sem modificadores mecânicos passivos nesta versão — combate padrão com arma equipada.</span>
+                  )}
+                </div>
+              </section>
+            )}
+
+            <section className="ficha-secao">
+              <h3>INVENTÁRIO</h3>
+              {inventario.length === 0 ? (
+                <div className="ficha-texto">Nenhum item no inventário.</div>
+              ) : (
+                <ul className="ficha-inventario-lista">
+                  {inventario.map((item, index) => (
+                    <li key={index}>
+                      {item.equipado ? '⚔️ ' : '📦 '}
+                      {item.quantidade}x {item.nome}
+                      {item.dano_ou_efeito ? ` — ${item.dano_ou_efeito}` : ''}
+                      {item.tipo ? ` (${item.tipo})` : ''}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
+        </div>
+      )}
 
       {/* OVERLAY DO DADO GIGANTE */}
       {isRolling && (

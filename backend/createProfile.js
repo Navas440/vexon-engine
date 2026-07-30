@@ -318,7 +318,7 @@ const LOCALIZACOES_INICIAIS = [
 // FUNÇÕES DE CRIAÇÃO
 // ==========================================
 
-function criarPersonagem(chave) {
+export function criarPersonagem(chave) {
   const template = PERSONAGENS[chave];
   if (!template) throw new Error(`Personagem "${chave}" não encontrado nos templates.`);
 
@@ -345,7 +345,8 @@ function criarPersonagem(chave) {
 }
 
 // criarCompendio agora é async para aguardar a geração das almas via Ollama
-async function criarCompendio() {
+// semAlma=true pula a geração de alma via IA (mais rápido, usa apenas ALMA_BASE_PADRAO)
+export async function criarCompendio(semAlma = false) {
   console.log("\n[+] Populando compêndio de monstros...");
   for (const monstro of MONSTROS_INICIAIS) {
     const r = insertMonster(monstro);
@@ -357,6 +358,8 @@ async function criarCompendio() {
     const r     = insertNpc(npc);
     const npcId = r.lastInsertRowid;
     console.log(`    ✓ NPC: ${npc.nome} (ID: ${npcId})`);
+
+    if (semAlma) continue;
 
     // Gera a alma emocional de cada NPC via Ollama
     // usar_ia = true → Ollama gera trauma, medo e ambição únicos para cada personagem
@@ -402,36 +405,43 @@ function exibirResumo(jogadorId) {
 // EXECUÇÃO PRINCIPAL
 // ==========================================
 
-const args           = process.argv.slice(2);
-const apenasComp     = args.includes("--apenas-compendio");
-const semAlma        = args.includes("--sem-alma");        // pula geração de alma (mais rápido)
-const nomePersonagem = args.find(a => !a.startsWith("--")) ?? "luca";
+// Só executa a CLI quando o arquivo é rodado diretamente (`node createProfile.js`),
+// não quando é importado por outro módulo (ex.: bootstrap automático em server.js).
+const isMain = process.argv[1] &&
+  import.meta.url === `file://${process.argv[1].replace(/\\/g, "/")}`;
 
-console.log("═".repeat(50));
-console.log("  VEXON — SISTEMA DE CRIAÇÃO DE PERFIL");
-console.log("═".repeat(50));
-if (semAlma) console.log("  ⚡ Modo rápido: geração de alma desativada\n");
+if (isMain) {
+  const args           = process.argv.slice(2);
+  const apenasComp     = args.includes("--apenas-compendio");
+  const semAlma        = args.includes("--sem-alma");        // pula geração de alma (mais rápido)
+  const nomePersonagem = args.find(a => !a.startsWith("--")) ?? "luca";
 
-// Tudo é async agora por causa do initializeNpcSoul
-(async () => {
-  try {
-    if (!apenasComp) {
-      const jogadorId = criarPersonagem(nomePersonagem);
-      await criarCompendio();
-      exibirResumo(jogadorId);
-    } else {
-      await criarCompendio();
-      console.log("\n✓ Compêndio populado. Nenhum jogador criado.\n");
+  console.log("═".repeat(50));
+  console.log("  VEXON — SISTEMA DE CRIAÇÃO DE PERFIL");
+  console.log("═".repeat(50));
+  if (semAlma) console.log("  ⚡ Modo rápido: geração de alma desativada\n");
+
+  // Tudo é async agora por causa do initializeNpcSoul
+  (async () => {
+    try {
+      if (!apenasComp) {
+        const jogadorId = criarPersonagem(nomePersonagem);
+        await criarCompendio(semAlma);
+        exibirResumo(jogadorId);
+      } else {
+        await criarCompendio(semAlma);
+        console.log("\n✓ Compêndio populado. Nenhum jogador criado.\n");
+      }
+    } catch (error) {
+      console.error("\n[ERRO] Falha ao criar perfil:");
+      console.error(error.message);
+
+      if (error.message?.includes("UNIQUE constraint")) {
+        console.error("\n  ► Dica: Este personagem já existe no banco.");
+        console.error("  ► Delete o arquivo vexon.db e rode novamente para recomeçar.");
+      }
+
+      process.exit(1);
     }
-  } catch (error) {
-    console.error("\n[ERRO] Falha ao criar perfil:");
-    console.error(error.message);
-
-    if (error.message?.includes("UNIQUE constraint")) {
-      console.error("\n  ► Dica: Este personagem já existe no banco.");
-      console.error("  ► Delete o arquivo vexon.db e rode novamente para recomeçar.");
-    }
-
-    process.exit(1);
-  }
-})();
+  })();
+}

@@ -52,7 +52,7 @@ export function toJson(value) {
  * Desserializa os campos JSON de uma entidade (memória, aliados, inimigos, etc.).
  * Retorna a entidade com os campos já parseados.
  */
-function hydrateJsonFields(entity, fields = ['memoria', 'inimigos', 'aliados', 'habilidades']) {
+function hydrateJsonFields(entity, fields = ['memoria', 'inimigos', 'aliados', 'habilidades', 'acoes']) {
   if (!entity) return null;
   const result = { ...entity };
   for (const field of fields) {
@@ -172,6 +172,11 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS jogadores (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     nome            TEXT NOT NULL,
+    classe          TEXT DEFAULT NULL,
+    idade           INTEGER DEFAULT NULL,
+    genero          TEXT DEFAULT NULL,
+    aparencia_fisica TEXT DEFAULT '',
+    personalidade   TEXT DEFAULT '',
     deslocamento    TEXT DEFAULT '9m',
     nivel           INTEGER DEFAULT 1,
     xp              INTEGER DEFAULT 0,
@@ -225,6 +230,7 @@ db.exec(`
     inteligencia            INTEGER DEFAULT 10,
     sabedoria               INTEGER DEFAULT 10,
     carisma                 INTEGER DEFAULT 10,
+    nivel                   INTEGER DEFAULT 1,
     ouro                    INTEGER DEFAULT 0,
     memoria                 TEXT DEFAULT '[]',
     relacao_com_jogador     TEXT DEFAULT 'Desconhecido',
@@ -308,6 +314,26 @@ db.exec(`
 `);
 
 // ==========================================
+// MIGRAÇÕES — SQLite não suporta "ADD COLUMN IF NOT EXISTS",
+// então cada ALTER roda isolado e ignora erro de coluna duplicada.
+// ==========================================
+
+function addColumnIfMissing(tabela, coluna, definicao) {
+  try {
+    db.exec(`ALTER TABLE ${tabela} ADD COLUMN ${coluna} ${definicao};`);
+  } catch (e) {
+    if (!/duplicate column name/i.test(e.message)) throw e;
+  }
+}
+
+addColumnIfMissing('entidades_vivas', 'nivel', 'INTEGER DEFAULT 1');
+addColumnIfMissing('jogadores', 'classe', 'TEXT DEFAULT NULL');
+addColumnIfMissing('jogadores', 'idade', 'INTEGER DEFAULT NULL');
+addColumnIfMissing('jogadores', 'genero', 'TEXT DEFAULT NULL');
+addColumnIfMissing('jogadores', 'aparencia_fisica', "TEXT DEFAULT ''");
+addColumnIfMissing('jogadores', 'personalidade', "TEXT DEFAULT ''");
+
+// ==========================================
 // COMPÊNDIO — NPCs
 // ==========================================
 
@@ -339,7 +365,7 @@ export function getNpcByName(nome) {
 }
 
 export function getAllNpcs() {
-  return db.prepare('SELECT * FROM npcs ORDER BY nome').all().map(hydrateJsonFields);
+  return db.prepare('SELECT * FROM npcs ORDER BY nome').all().map(e => hydrateJsonFields(e));
 }
 
 export function updateNpcMemory(id, novaMemoria) {
@@ -387,6 +413,7 @@ export function insertMonster(monster) {
   `);
   return stmt.run({
     ...monster,
+    nome_unico: monster.nome_unico ?? monster.nome,
     memoria:  toJson(monster.memoria),
     inimigos: toJson(monster.inimigos),
     aliados:  toJson(monster.aliados),
@@ -401,7 +428,7 @@ export function getMonsterByName(nome) {
 export function getMonstersByLevel(nivelMin, nivelMax) {
   return db.prepare('SELECT * FROM monstros WHERE nivel BETWEEN ? AND ? ORDER BY nivel')
     .all(nivelMin, nivelMax)
-    .map(hydrateJsonFields);
+    .map(e => hydrateJsonFields(e));
 }
 
 // ==========================================
@@ -411,19 +438,26 @@ export function getMonstersByLevel(nivelMin, nivelMax) {
 export function insertPlayer(player) {
   const stmt = db.prepare(`
     INSERT INTO jogadores (
-      nome, nivel, xp, hp_maximo, hp_atual, ca,
+      nome, classe, idade, genero, aparencia_fisica, personalidade,
+      nivel, xp, hp_maximo, hp_atual, ca,
       forca, destreza, resistencia, inteligencia, sabedoria, carisma, ouro,
       objetivo, faccao, inimigos, aliados, territorio
     ) VALUES (
-      @nome, @nivel, @xp, @hp_maximo, @hp_atual, @ca,
+      @nome, @classe, @idade, @genero, @aparencia_fisica, @personalidade,
+      @nivel, @xp, @hp_maximo, @hp_atual, @ca,
       @forca, @destreza, @resistencia, @inteligencia, @sabedoria, @carisma, @ouro,
       @objetivo, @faccao, @inimigos, @aliados, @territorio
     )
   `);
   return stmt.run({
     ...player,
-    inimigos: toJson(player.inimigos),
-    aliados:  toJson(player.aliados),
+    classe:           player.classe ?? null,
+    idade:            player.idade ?? null,
+    genero:           player.genero ?? null,
+    aparencia_fisica: player.aparencia_fisica ?? '',
+    personalidade:    player.personalidade ?? '',
+    inimigos:         toJson(player.inimigos),
+    aliados:          toJson(player.aliados),
   });
 }
 
@@ -433,7 +467,7 @@ export function getPlayer(id) {
 }
 
 export function getAllPlayers() {
-  return db.prepare('SELECT id, nome, nivel, hp_atual, hp_maximo, ouro FROM jogadores ORDER BY nome').all();
+  return db.prepare('SELECT id, nome, classe, nivel, hp_atual, hp_maximo, ouro FROM jogadores ORDER BY id DESC').all();
 }
 
 export function updatePlayerHP(id, novoHp) {
@@ -591,16 +625,17 @@ export const spawnEntity = db.transaction((nome_template, tipo_entidade) => {
   const result = db.prepare(`
     INSERT INTO entidades_vivas (
       tipo_entidade, template_id, nome_unico,
-      hp_maximo, hp_atual, ca,
+      hp_maximo, hp_atual, ca, nivel,
       forca, destreza, resistencia, inteligencia, sabedoria, carisma, ouro,
       memoria, relacao_com_jogador, objetivo, faccao, inimigos, aliados, territorio
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     tipo_entidade,
     template.id,
     template.nome_unico ?? template.nome,
     hpBase, hpBase,
     template.ca ?? 10,
+    template.nivel ?? 1,
     template.forca ?? 10, template.destreza ?? 10, template.resistencia ?? 10,
     template.inteligencia ?? 10, template.sabedoria ?? 10, template.carisma ?? 10,
     template.ouro ?? 0,
@@ -655,21 +690,21 @@ export function getActiveEntity(id_ativo) {
 
 export function getActiveEnemies(status = null) {
   if (status) {
-    return db.prepare(`SELECT * FROM entidades_vivas WHERE status = ?`).all(status).map(hydrateJsonFields);
+    return db.prepare(`SELECT * FROM entidades_vivas WHERE status = ?`).all(status).map(e => hydrateJsonFields(e));
   }
-  return db.prepare(`SELECT * FROM entidades_vivas WHERE status != 'morto'`).all().map(hydrateJsonFields);
+  return db.prepare(`SELECT * FROM entidades_vivas WHERE status != 'morto'`).all().map(e => hydrateJsonFields(e));
 }
 
 /**
  * Atualiza o HP de uma entidade ativa.
  * Calcula automaticamente o status baseado no novo HP.
  */
-export function updateActiveEntityHP(id_ativo, novo_hp) {
+export function updateActiveEntityHP(id_ativo, novo_hp, statusOverride = null) {
   const entidade = db.prepare('SELECT hp_maximo, status FROM entidades_vivas WHERE id = ?').get(id_ativo);
   if (!entidade) return null;
 
   const hpFinal  = Math.max(0, Math.min(novo_hp, entidade.hp_maximo));
-  const novoStatus = hpFinal <= 0 ? 'morto' : entidade.status;
+  const novoStatus = hpFinal <= 0 ? 'morto' : (statusOverride ?? entidade.status);
 
   db.prepare(`
     UPDATE entidades_vivas

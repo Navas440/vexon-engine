@@ -10,6 +10,38 @@ import db, {
 } from "../db/database.js";
 
 // ==========================================
+// CONFIGURAÇÃO DO OLLAMA
+// ==========================================
+
+const OLLAMA_URL   = process.env.OLLAMA_URL   || "http://localhost:11434";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "mistral";
+
+async function callOllama(messages, timeout = 20000) {
+  const controller = new AbortController();
+  const timer      = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const response = await fetch(`${OLLAMA_URL}/api/chat`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      signal:  controller.signal,
+      body: JSON.stringify({
+        model:    OLLAMA_MODEL,
+        messages,
+        stream:   false,
+        options: { temperature: 0.9, num_predict: 300 },
+      }),
+    });
+
+    if (!response.ok) throw new Error(`Ollama HTTP ${response.status}`);
+    const data = await response.json();
+    return data.message?.content ?? "";
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ==========================================
 // MIGRAÇÃO: ADICIONA CAMPOS DE ALMA AO BANCO
 // ==========================================
 // Roda automaticamente uma vez. Ignora se já existir.
@@ -503,7 +535,6 @@ export async function initializeNpcSoul(npc_id, tabela = "npcs", usar_ia = true)
 
   if (usar_ia) {
     try {
-      const { callOllama } = await import("./llmClient.js");
       const raw = await callOllama([
         {
           role: "system",

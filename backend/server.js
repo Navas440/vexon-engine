@@ -6,9 +6,17 @@ import { verificarCompletacaoObjetivos } from "./engine/questEngine.js";
 import { processPlayerAction }               from "./engine/gameEngine.js";
 import { sendToLLM, askMaster, checkOllamaHealth } from "./llmClient.js";
 import { handleEntityCreation, gerarMonstroRapido, gerarNpcRapido } from "./entityHandler.js";
-import { spawnEntity, getWorldSnapshot, getPlayer,
+import { spawnEntity, getWorldSnapshot, getPlayer, insertItem, addItemToInventory, equipWeapon,
          getAllPlayers, getRecentEvents, getActiveEnemies,
-         getPlayerInventory, closeDatabase }  from "./db/database.js";
+         getPlayerInventory, insertPlayer, closeDatabase }  from "./db/database.js";
+import { criarCompendio }                     from "./createProfile.js";
+import { setupFactionRoutes, inicializarFaccoesVexon, iniciarFactionTicker } from "./engine/factionEngine.js";
+import { setupEconomyRoutes, inicializarLojas, iniciarEconomyTicker }        from "./engine/economyEngine.js";
+import { setupCraftRoutes, inicializarReceitas }                            from "./engine/craftEngine.js";
+import { setupLocationRoutes, inicializarLocais, iniciarLocationTicker, setLocalJogador } from "./engine/locationEngine.js";
+import { CLASSES, CLASSE_IDS, calcularCaClasse } from "./classData.js";
+import { calculateModifier } from "./engine/diceEngine.js";
+import { ITENS_INICIAIS, LIMITE_ITENS_INICIAIS, getItemInicial } from "./starterItems.js";
 
 // ==========================================
 // CONFIGURAÇÃO
@@ -275,6 +283,119 @@ app.get("/api/events", (req, res) => {
 });
 
 // ==========================================
+// ROTA 5.5 — CRIAÇÃO DE PERSONAGEM
+// ==========================================
+
+/**
+ * GET /api/classes
+ * Lista as 12 classes jogáveis para a tela de criação de personagem.
+ */
+app.get("/api/classes", (_req, res) => {
+  ok(res, { classes: Object.values(CLASSES) });
+});
+
+/**
+ * GET /api/starter-items
+ * Catálogo fixo de itens que podem ser escolhidos na criação de personagem.
+ */
+app.get("/api/starter-items", (_req, res) => {
+  ok(res, { itens: ITENS_INICIAIS, limite: LIMITE_ITENS_INICIAIS });
+});
+
+/**
+ * POST /api/player
+ * Body: {
+ *   nome, classe, atributos: { forca, destreza, resistencia, inteligencia, sabedoria, carisma },
+ *   idade, genero: "masculino" | "feminino",
+ *   aparencia_fisica, personalidade,
+ *   itens: string[] (chaves do catálogo de itens iniciais, até LIMITE_ITENS_INICIAIS)
+ * }
+ * Cria um novo personagem jogável a partir da tela de criação.
+ */
+app.post("/api/player", (req, res) => {
+  const {
+    nome, classe, atributos = {},
+    idade, genero, aparencia_fisica = "", personalidade = "",
+    itens = [],
+  } = req.body;
+
+  if (!nome?.trim())                 return erro(res, "nome é obrigatório.", 400);
+  if (!CLASSE_IDS.includes(classe))  return erro(res, `classe inválida. Use uma de: ${CLASSE_IDS.join(", ")}.`, 400);
+
+  const ATRIBUTOS = ["forca", "destreza", "resistencia", "inteligencia", "sabedoria", "carisma"];
+  const atrsFinal = {};
+  for (const a of ATRIBUTOS) {
+    const v = Number(atributos[a]);
+    if (!Number.isFinite(v) || v < 3 || v > 20) {
+      return erro(res, `atributo "${a}" inválido — deve ser um número entre 3 e 20.`, 400);
+    }
+    atrsFinal[a] = v;
+  }
+
+  const idadeNum = Number(idade);
+  if (!Number.isFinite(idadeNum) || idadeNum < 1 || idadeNum > 200) {
+    return erro(res, "idade inválida — deve ser um número entre 1 e 200.", 400);
+  }
+  if (!["masculino", "feminino"].includes(genero)) {
+    return erro(res, 'gênero inválido — use "masculino" ou "feminino".', 400);
+  }
+  if (!Array.isArray(itens) || itens.length > LIMITE_ITENS_INICIAIS) {
+    return erro(res, `itens inválidos — escolha no máximo ${LIMITE_ITENS_INICIAIS}.`, 400);
+  }
+  const itensEscolhidos = [];
+  for (const chave of itens) {
+    const itemDef = getItemInicial(chave);
+    if (!itemDef) return erro(res, `item inicial desconhecido: "${chave}".`, 400);
+    itensEscolhidos.push(itemDef);
+  }
+
+  try {
+    const info   = CLASSES[classe];
+    const modRes = calculateModifier(atrsFinal.resistencia);
+    const hpMax  = Math.max(1, info.dado_vida + modRes);
+    const ca     = calcularCaClasse(classe, atrsFinal);
+
+    const result = insertPlayer({
+      nome:             nome.trim().slice(0, 100),
+      classe,
+      idade:            idadeNum,
+      genero,
+      aparencia_fisica: String(aparencia_fisica).trim().slice(0, 1000),
+      personalidade:    String(personalidade).trim().slice(0, 1000),
+      nivel:      1,
+      xp:         0,
+      hp_maximo:  hpMax,
+      hp_atual:   hpMax,
+      ca,
+      ...atrsFinal,
+      ouro:       250,
+      objetivo:   "",
+      faccao:     "",
+      inimigos:   [],
+      aliados:    [],
+      territorio: "",
+    });
+
+    const jogadorId = result.lastInsertRowid;
+    setLocalJogador(jogadorId, "Cidade de Vexon — Centro");
+
+    let armaEquipada = false;
+    for (const itemDef of itensEscolhidos) {
+      const itemResult = insertItem(itemDef);
+      const invResult  = addItemToInventory(jogadorId, itemResult.lastInsertRowid, 1);
+      if (!armaEquipada && itemDef.tipo === "arma") {
+        equipWeapon(jogadorId, invResult.lastInsertRowid);
+        armaEquipada = true;
+      }
+    }
+
+    ok(res, { player: getPlayer(jogadorId) });
+  } catch (e) {
+    erro(res, e.message, 400);
+  }
+});
+
+// ==========================================
 // ROTA 6 — NARRAÇÃO PONTUAL
 // ==========================================
 
@@ -296,21 +417,6 @@ app.post("/api/narrate", aiLimiter, async (req, res) => {
 });
 
 // ==========================================
-// MIDDLEWARE DE ERRO GLOBAL
-// ==========================================
-
-// Rota não encontrada
-app.use((req, res) => {
-  res.status(404).json({ sucesso: false, erro: `Rota "${req.path}" não existe.` });
-});
-
-// Erro não capturado
-app.use((err, _req, res, _next) => {
-  console.error("[Erro não capturado]", err);
-  res.status(500).json({ sucesso: false, erro: "Erro interno do servidor." });
-});
-
-// ==========================================
 // INICIALIZAÇÃO
 // ==========================================
 
@@ -322,6 +428,39 @@ async function iniciar() {
   setupQuestRoutes(app);
   iniciarQuestTicker();
 
+  // ==========================================
+  // BOOTSTRAP DO COMPÊNDIO (monstros/NPCs/localizações legadas)
+  // ==========================================
+  // Não cria mais um jogador automático — a criação de personagem agora é
+  // feita pelo jogador via tela de criação (POST /api/player). O gate em
+  // "zero jogadores" ainda serve para rodar o seed do compêndio uma única
+  // vez, já que criarCompendio() não é idempotente por si só.
+  const jogadoresExistentes = getAllPlayers();
+
+  if (jogadoresExistentes.length === 0) {
+    console.log("\n  →  Nenhum jogador encontrado. Populando compêndio inicial do mundo...");
+    await criarCompendio();
+    console.log("  ✓  Compêndio inicial populado.");
+  } else {
+    console.log(`\n  ✓  ${jogadoresExistentes.length} jogador(es) já existente(s). Pulando seed do compêndio.`);
+  }
+
+  // ==========================================
+  // SISTEMAS DE FACÇÃO, ECONOMIA, CRAFTING E LOCALIZAÇÃO
+  // ==========================================
+  inicializarFaccoesVexon();
+  inicializarLojas();
+  inicializarReceitas();
+  inicializarLocais();
+
+  setupFactionRoutes(app);
+  setupEconomyRoutes(app);
+  setupCraftRoutes(app);
+  setupLocationRoutes(app);
+
+  iniciarFactionTicker();
+  iniciarEconomyTicker();
+  iniciarLocationTicker();
 
   // Verifica Ollama antes de subir
   const saude = await checkOllamaHealth();
@@ -336,6 +475,24 @@ async function iniciar() {
   } else {
     console.log(`\n  ✓  Ollama online — modelo "${saude.modelo}" disponível`);
   }
+
+  // ==========================================
+  // MIDDLEWARE DE ERRO GLOBAL
+  // Registrados por último — precisam vir DEPOIS de todas as rotas (incluindo
+  // as registradas pelos setupXRoutes acima), senão o catch-all de 404 intercepta
+  // tudo que viria depois dele na pilha de middlewares do Express.
+  // ==========================================
+
+  // Rota não encontrada
+  app.use((req, res) => {
+    res.status(404).json({ sucesso: false, erro: `Rota "${req.path}" não existe.` });
+  });
+
+  // Erro não capturado
+  app.use((err, _req, res, _next) => {
+    console.error("[Erro não capturado]", err);
+    res.status(500).json({ sucesso: false, erro: "Erro interno do servidor." });
+  });
 
   app.listen(PORT, () => {
     console.log(`  ✓  Servidor rodando em http://localhost:${PORT}`);

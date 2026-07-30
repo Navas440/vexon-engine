@@ -9,6 +9,7 @@ import {
   logWorldEvent,
 } from "../db/database.js";
 import { calculateModifier } from "./skillEngine.js";
+import { getClasse } from "../classData.js";
 
 // ==========================================
 // CONSTANTES DE COMBATE
@@ -102,8 +103,16 @@ export function calculateAttack(jogador_id, entidade_ativa_id) {
   if (!alvo)   throw new Error(`Entidade ${entidade_ativa_id} não encontrada.`);
   if (alvo.status === 'morto') throw new Error(`${alvo.nome_unico} já está morto.`);
 
+  // ---- PERFIL DE CLASSE ----
+  // classeInfo é null para jogadores sem classe definida (legado) — nesse caso
+  // todo o bloco abaixo colapsa exatamente no comportamento original (arma/desarmado).
+  const classeInfo       = player.classe ? getClasse(player.classe) : null;
+  const ataqueAssinatura = classeInfo?.ataque_assinatura ?? null;
+
   // ---- ACERTO ----
-  const modAtaque     = getModAtaque(player, arma);
+  const modAtaque = ataqueAssinatura
+    ? calculateModifier(player[ataqueAssinatura.atributo] ?? 10)
+    : getModAtaque(player, arma);
   const { resultado: dadoBruto, critico, falhaCritica } = rollD20();
   const totalAcerto   = dadoBruto + modAtaque;
   const caAlvo        = (alvo.ca || 10) + (alvo.bonus_ca || 0);
@@ -122,13 +131,19 @@ export function calculateAttack(jogador_id, entidade_ativa_id) {
   }
 
   // ---- DANO ----
-  const stringDano  = arma?.dano_ou_efeito || DANO_DESARMADO;
+  const stringDano = ataqueAssinatura
+    ? ataqueAssinatura.dado_dano
+    : (arma?.dano_ou_efeito || DANO_DESARMADO);
   let dadoDano      = rollDiceString(stringDano);
 
   // Crítico: rola os dados de dano uma segunda vez (não dobra o total — regra D&D 5e)
   if (critico) dadoDano += rollDiceString(stringDano);
 
-  const bonusDano   = modAtaque + (alvo.dano_bonus || 0) + (arma ? 0 : 0);
+  // Bônus fixo de dano por classe (Herdeiro Tático, Predador Estelar) — somado ao dano
+  // final, não re-rolado no crítico (é um bônus por golpe, não parte do dado da arma).
+  const bonusDadoClasse = classeInfo?.bonus_dano_dado ? rollDiceString(classeInfo.bonus_dano_dado) : 0;
+
+  const bonusDano   = modAtaque + (alvo.dano_bonus || 0) + (arma ? 0 : 0) + bonusDadoClasse;
   const danoFinal   = Math.max(1, dadoDano + bonusDano);
 
   // ---- APLICA DANO ----
@@ -141,10 +156,10 @@ export function calculateAttack(jogador_id, entidade_ativa_id) {
   if (morreu) {
     recompensas = calcularRecompensas(alvo);
     addPlayerGold(jogador_id, recompensas.ouro);
-    awardPlayerXP(jogador_id, recompensas.xp);
+    recompensas.evolucao = awardPlayerXP(jogador_id, recompensas.xp);
     logWorldEvent(
       'batalha',
-      `${player.nome} derrotou ${alvo.nome_unico} com ${arma?.nome ?? 'soco'}.`,
+      `${player.nome} derrotou ${alvo.nome_unico} com ${ataqueAssinatura ? ataqueAssinatura.nome_habilidade : (arma?.nome ?? 'soco')}.`,
       [jogador_id, entidade_ativa_id]
     );
   }
@@ -160,7 +175,9 @@ export function calculateAttack(jogador_id, entidade_ativa_id) {
     dano_bruto:   dadoDano,
     dano_bonus:   bonusDano,
     dano:         danoFinal,
-    arma:         arma?.nome ?? 'Soco',
+    arma:         ataqueAssinatura ? ataqueAssinatura.nome_habilidade : (arma?.nome ?? 'Soco'),
+    tipo_dano:    ataqueAssinatura?.tipo_dano ?? classeInfo?.bonus_dano_tipo ?? "físico",
+    habilidade_usada: ataqueAssinatura?.nome_habilidade ?? null,
     alvo: {
       nome:        alvo.nome_unico,
       hp_anterior: alvo.hp_atual,

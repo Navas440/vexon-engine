@@ -294,11 +294,31 @@ export function inicializarLojas() {
     },
   ];
 
+  let forjaId = null;
   for (const loja of lojasPadrao) {
-    db.prepare(`
+    const result = db.prepare(`
       INSERT INTO lojas (nome, tipo, faccao, local, desconto_base)
       VALUES (?, ?, ?, ?, ?)
     `).run(loja.nome, loja.tipo, loja.faccao, loja.local, loja.desconto_base);
+    if (loja.nome === "Forja da Mira") forjaId = result.lastInsertRowid;
+  }
+
+  // Estoque inicial da Forja da Mira, usando itens já criados pelo equipamento
+  // inicial do jogador em createProfile.js. Sem esses itens, a loja fica vazia
+  // (não quebra nada, só não há o que comprar até o compêndio ser semeado).
+  if (forjaId) {
+    const itensEstoque = [
+      { nome: "Poção de Cura",              quantidade: -1, preco_ouro: 50 },
+      { nome: "Kit de Ferramentas de Ladrão", quantidade: -1, preco_ouro: 25 },
+    ];
+    for (const entrada of itensEstoque) {
+      const item = db.prepare("SELECT id FROM itens WHERE nome = ?").get(entrada.nome);
+      if (!item) continue;
+      db.prepare(`
+        INSERT INTO loja_estoque (loja_id, item_id, quantidade, preco_ouro)
+        VALUES (?, ?, ?, ?)
+      `).run(forjaId, item.id, entrada.quantidade, entrada.preco_ouro);
+    }
   }
 
   console.log("[EconomyEngine] Lojas inicializadas.");
