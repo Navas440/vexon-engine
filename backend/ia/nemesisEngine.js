@@ -13,6 +13,7 @@ import {
   criarMemoriaRica,
   getEmotionalContext,
 } from "./npcsoulEngine.js";
+import { TOM_VEXON } from "../loreVexon.js";
 
 // ==========================================
 // CONFIGURAÇÃO DO OLLAMA
@@ -133,8 +134,9 @@ async function gerarEvolucaoComIA(monstroAtivo, oQueOJogadorFez, analise, ranges
     ? `\nVida interior atual da entidade:\n${ctxEmocional.resumo_prompt}`
     : "";
 
-  const system = `Você é o arquiteto do destino no mundo sombrio de Vexon.
-Crie evoluções Nemesis realistas e dramáticas para entidades que sobreviveram a combates.
+  const system = `${TOM_VEXON}
+
+Você é o arquiteto do destino de Vexon. Crie evoluções Nemesis realistas e dramáticas para entidades que sobreviveram a combates.
 A nova personalidade deve ser uma continuação orgânica da vida interior já existente — não uma reinvenção completa.
 Responda APENAS com JSON válido. Sem texto antes ou depois.`;
 

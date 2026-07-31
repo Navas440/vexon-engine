@@ -9,6 +9,7 @@ import db, {
   parseJson,
   toJson,
 } from "../db/database.js";
+import { TOM_VEXON } from "../loreVexon.js";
 
 // ==========================================
 // CONFIGURAÇÃO DO OLLAMA
@@ -142,7 +143,7 @@ export function gerarAlertas(estado = null) {
   if (e.khal_reth_distancia <= 30)
     alertas.push({ nivel: "critico", msg: `Khal-Reth a ${e.khal_reth_distancia}% de distância — caçador alienígena se aproxima.` });
   if (e.poder_irmandade >= 80)
-    alertas.push({ nivel: "aviso", msg: `Irmandade Varkos em ${e.poder_irmandade}% de poder — controle da cidade em risco.` });
+    alertas.push({ nivel: "aviso", msg: `A Irmandade em ${e.poder_irmandade}% de poder — controle da cidade em risco.` });
 
   return alertas;
 }
@@ -286,7 +287,7 @@ const EVENTOS_IRMANDADE = [
   {
     id:        "recrutamento_cultistas",
     titulo:    "Irmandade Recruta nas Periferias",
-    descricao: "Agentes da Irmandade Varkos distribuem promessas de poder e proteção " +
+    descricao: "Agentes da Irmandade distribuem promessas de poder e proteção " +
                "nos orfanatos e becos de Nova Varnhold. Novos cultistas são iniciados.",
     impacto:   { poder_irmandade: +3, poder_resistencia: -1 },
     peso: 4,
@@ -357,9 +358,9 @@ const EVENTOS_RESISTENCIA = [
   {
     id:        "aline_politico",
     titulo:    "Aline Ventris Bloqueia Legislação Corporativa",
-    descricao: "A executiva da Varkos HumanTech usa influência política para derrubar " +
-               "projeto de lei que daria imunidade diplomática à Darvoss Dynamics. " +
-               "Vitória silenciosa no campo burocrático.",
+    descricao: "A estrategista da equipe de apoio de Darian Varkos, infiltrada no meio corporativo, " +
+               "usa influência política para derrubar projeto de lei que daria imunidade diplomática " +
+               "à Darvoss Dynamics. Vitória silenciosa no campo burocrático.",
     impacto:   { poder_darvoss: -3, poder_resistencia: +2 },
     peso: 2,
     condicao:  (e) => e.poder_darvoss > 35,
@@ -712,7 +713,8 @@ export async function narrarEstadoDoMundo(jogador_id, num_eventos = 5) {
     ? `\nALERTAS ATIVOS:\n${alertas.map(a => `⚠ ${a.msg}`).join("\n")}`
     : "";
 
-  const prompt = `Você é o narrador sombrio de Vexon — uma cidade cyberpunk onde magia e tecnologia colidem.
+  const prompt = `${TOM_VEXON}
+
 Leia os eventos recentes do mundo e narre-os em 2-3 parágrafos, segunda pessoa, tom de briefing urgente.
 Não mencione categorias, IDs ou termos técnicos. Apenas narre como o estado atual da cidade.
 
@@ -724,11 +726,11 @@ Estado global:
 - Grande Selo: ${estado.rachadura_selo}% rachado
 - Quasiluz: ${estado.nivel_quasiluz}% de cobertura  
 - Poder da Irmandade: ${estado.poder_irmandade}%
-- Poder da Resistência: ${estado.poder_resistencia}%`;
+- Poder da VarnX Core: ${estado.poder_resistencia}%`;
 
   try {
     return await callOllamaWorld([
-      { role: "system", content: "Você narra o estado do mundo sombrio de Vexon. Máximo de 3 parágrafos." },
+      { role: "system", content: `${TOM_VEXON}\n\nVocê narra o estado do mundo de Vexon. Máximo de 3 parágrafos.` },
       { role: "user",   content: prompt },
     ], { num_predict: 300 });
   } catch {
@@ -748,7 +750,7 @@ export function getWorldContextForPrompt() {
   const linhas = [
     `Estado do mundo Vexon:`,
     `Grande Selo ${e.rachadura_selo}% | Vácuo ${e.influencia_vacuo}% | Quasiluz ${e.nivel_quasiluz}%`,
-    `Irmandade ${e.poder_irmandade}% | Darvoss ${e.poder_darvoss}% | Resistência ${e.poder_resistencia}%`,
+    `Irmandade ${e.poder_irmandade}% | Darvoss ${e.poder_darvoss}% | VarnX Core ${e.poder_resistencia}%`,
     e.criancas_desaparecidas > 0 ? `Crianças desaparecidas (Projeto Genesis): ${e.criancas_desaparecidas}` : null,
     e.khal_reth_distancia < 50   ? `Khal-Reth a ${e.khal_reth_distancia}% de distância` : null,
     alertas.length > 0 ? `Alertas: ${alertas.map(a => a.msg).join(" | ")}` : null,
@@ -797,17 +799,21 @@ export function detectarEProcessarConsequencias(resultadoAcao, jogadorNome, loca
 // ROTAS DE INTEGRAÇÃO COM server.js
 // ==========================================
 
+// Prefixo próprio ("/api/cosmic/*") para não colidir com a rota pré-existente
+// GET /api/world/:jogador_id (snapshot de HUD em server.js) — ambas usariam
+// "/api/world" como namespace, e a rota de HUD (registrada fora de iniciar(),
+// portanto sempre primeiro) engoliria "/api/world/state" como jogador_id="state".
 export function setupWorldRoutes(app) {
-  app.get("/api/world/state", (_req, res) => {
+  app.get("/api/cosmic/state", (_req, res) => {
     res.json({ sucesso: true, estado: getFullWorldState(), alertas: gerarAlertas() });
   });
 
-  app.get("/api/world/events", (req, res) => {
+  app.get("/api/cosmic/events", (req, res) => {
     const limit = Math.min(Number(req.query.limit) || 20, 50);
     res.json({ sucesso: true, eventos: getEventosVisiveis(limit) });
   });
 
-  app.get("/api/world/briefing/:jogador_id", async (req, res) => {
+  app.get("/api/cosmic/briefing/:jogador_id", async (req, res) => {
     try {
       const narrativa = await narrarEstadoDoMundo(Number(req.params.jogador_id));
       res.json({ sucesso: true, narrativa });
@@ -816,7 +822,7 @@ export function setupWorldRoutes(app) {
     }
   });
 
-  app.post("/api/world/consequence", (req, res) => {
+  app.post("/api/cosmic/consequence", (req, res) => {
     const { tipo, contexto } = req.body;
     if (!tipo) return res.status(400).json({ sucesso: false, erro: "tipo é obrigatório." });
     try {
@@ -827,12 +833,12 @@ export function setupWorldRoutes(app) {
     }
   });
 
-  app.post("/api/world/tick", (_req, res) => {
+  app.post("/api/cosmic/tick", (_req, res) => {
     const resultado = processarTick(false);
     res.json({ sucesso: true, resultado });
   });
 
-  console.log("[WorldEngine] Rotas registradas: /api/world/*");
+  console.log("[WorldEngine] Rotas registradas: /api/cosmic/*");
 }
 
 // ==========================================

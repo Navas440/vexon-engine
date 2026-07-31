@@ -10,6 +10,7 @@
 import db, { logWorldEvent, toJson, parseJson, getPlayer } from "../db/database.js";
 
 import { deltaWorldState, getFullWorldState, callOllamaWorld } from "../ia/worldEngine.js";
+import { TOM_VEXON } from "../loreVexon.js";
 // ==========================================
 // TABELAS DO BANCO DE DADOS
 // ==========================================
@@ -118,12 +119,12 @@ export function inicializarFaccoesVexon() {
 
   const faccoesPadrao = [
     {
-      nome: "Irmandade Varkos",
-      descricao: "Organização milenar de magos obscuros e assassinos. Busca o controle total da humanidade.",
+      nome: "A Irmandade",
+      descricao: "Organização milenar de assassinos e magos anciãos, liderada por Noctis e o Conselho dos Três (Fogo, Gelo e Sombras). Busca o domínio fundindo ciência e o oculto.",
       tipo: "irmandade",
       poder: 60,
       moralidade: "maligno",
-      lider_nome: "Noctis (Arconte das Três Sombras)",
+      lider_nome: "Noctis e o Conselho dos Três (Fogo, Gelo e Sombras)",
       objetivo_principal: "Implementar a Noite Vermelha 2.0 para controle mental passivo.",
       alinhamento_vexon: "caotica",
       territorio: toJson(["Bairro das Lanternas Azuis", "Torre da Eclipsa"]),
@@ -142,20 +143,20 @@ export function inicializarFaccoesVexon() {
       poder_retencao: 0.98,
     },
     {
-      nome: "Resistência",
-      descricao: "Coalizão de heróis contra a opressão corporativa e mágica.",
+      nome: "VarnX Core",
+      descricao: "Operação de resistência secreta de Darian Varkos (\"Noctark\"), bilionário de dia e vigilante letal à noite, com uma equipe de apoio (Aline Ventris, Kai Solano, Elin Mirae, Juno Karse).",
       tipo: "resistencia",
       poder: 30,
       moralidade: "bom",
       lider_nome: "Darian Varkos (Noctark)",
-      objetivo_principal: "Destruir a Irmandade Varkos e libertar Vexon.",
+      objetivo_principal: "Destruir A Irmandade e libertar Vexon.",
       alinhamento_vexon: "leal",
       territorio: toJson(["Coração Sombrio", "Base Sentinela"]),
       poder_retencao: 1.05,
     },
     {
-      nome: "VarnCore Remanescente",
-      descricao: "Cientistas e agentes da corporação caída. Operam nas sombras.",
+      nome: "Remanescentes de Corven",
+      descricao: "Cientistas e agentes da corporação caída VarnCore. Operam nas sombras.",
       tipo: "corporacao",
       poder: 25,
       moralidade: "neutro",
@@ -164,6 +165,18 @@ export function inicializarFaccoesVexon() {
       alinhamento_vexon: "neutra",
       territorio: toJson(["Laboratórios Secretos"]),
       poder_retencao: 0.85,
+    },
+    {
+      nome: "O Vácuo",
+      descricao: "Culto de anarquistas e terroristas cósmicos que busca a ruína da realidade, a quebra da mente e o colapso estrutural. Usa equipamentos que distorcem a realidade.",
+      tipo: "cult",
+      poder: 20,
+      moralidade: "maligno",
+      lider_nome: "O Julgador do Abismo",
+      objetivo_principal: "Colapso estrutural da realidade em torno de Vexon.",
+      alinhamento_vexon: "caotica",
+      territorio: toJson(["Tir-Naleth"]),
+      poder_retencao: 0.9,
     },
     {
       nome: "Mercado Negro",
@@ -196,20 +209,22 @@ export function inicializarFaccoesVexon() {
   }
 
   // Cria alianças padrão
-  const irmandade = getFaccaoPorNome("Irmandade Varkos");
+  const irmandade = getFaccaoPorNome("A Irmandade");
   const darvoss = getFaccaoPorNome("Darvoss Dynamics");
-  const resistencia = getFaccaoPorNome("Resistência");
-  const varncore = getFaccaoPorNome("VarnCore Remanescente");
+  const varnxcore = getFaccaoPorNome("VarnX Core");
+  const remanescentes = getFaccaoPorNome("Remanescentes de Corven");
   const mercado = getFaccaoPorNome("Mercado Negro");
   const sussurradores = getFaccaoPorNome("Ordem dos Sussurradores");
+  const vacuo = getFaccaoPorNome("O Vácuo");
 
   // Alianças
   criarAlianca(irmandade.id, darvoss.id, "alianca", 75);
-  criarAlianca(resistencia.id, sussurradores.id, "alianca", 70);
-  criarAlianca(varncore.id, darvoss.id, "neutralidade", 50);
+  criarAlianca(varnxcore.id, sussurradores.id, "alianca", 70);
+  criarAlianca(remanescentes.id, darvoss.id, "neutralidade", 50);
   criarAlianca(mercado.id, irmandade.id, "neutralidade", 45);
-  criarAlianca(resistencia.id, irmandade.id, "guerra", 85);
-  criarAlianca(resistencia.id, darvoss.id, "guerra", 80);
+  criarAlianca(varnxcore.id, irmandade.id, "guerra", 85);
+  criarAlianca(varnxcore.id, darvoss.id, "guerra", 80);
+  criarAlianca(vacuo.id, sussurradores.id, "guerra", 60);
 
   console.log("[FactionEngine] Facções de Vexon inicializadas.");
 }
@@ -710,14 +725,15 @@ export async function gerarFaccaoDinamica(contexto = {}) {
   const estado = getFullWorldState();
   const faccoesCont = getFaccoesAtivas();
 
-  const prompt = `Você é o criador de facções para o RPG Vexon.
-Gere UMA facção nova, dinâmica e coerente com o caos de Vexon.
+  const prompt = `${TOM_VEXON}
+
+Você é o criador de facções para o RPG Vexon. Gere UMA facção nova, dinâmica e coerente com o caos de Vexon.
 
 Estado do Mundo:
 - Grande Selo ${estado.rachadura_selo}% rachado
 - Quasiluz ${estado.nivel_quasiluz}% de contaminação
 - Irmandade ${estado.poder_irmandade}% de poder
-- Resistência ${estado.poder_resistencia}% de poder
+- VarnX Core ${estado.poder_resistencia}% de poder
 - ${faccoesCont.length} facções já existem
 
 ${nome_sugestao ? `Nome sugerido: ${nome_sugestao}` : ""}
@@ -842,7 +858,9 @@ async function gerarAcaoFaccaoIA(faccao) {
   const estado = getFullWorldState();
   const aliancas = getAliancas(faccao.id);
 
-  const prompt = `Você é o estrategista de uma facção em Vexon.
+  const prompt = `${TOM_VEXON}
+
+Você é o estrategista de uma facção em Vexon.
 
 Facção: ${faccao.nome}
 Tipo: ${faccao.tipo}

@@ -5,6 +5,7 @@
 
 import db, { logWorldEvent, toJson, parseJson, getPlayer, insertItem, addItemToInventory } from "../db/database.js";
 import { callOllamaWorld, getFullWorldState } from "../ia/worldEngine.js";
+import { TOM_VEXON } from "../loreVexon.js";
 
 // ==========================================
 // TABELAS DO BANCO DE DADOS
@@ -564,7 +565,9 @@ async function julgarDescobertaIA(ingredientes, ferramenta, player) {
     .map(i => `${i.quantidade}x ${i.nome}`)
     .join(", ");
 
-  const prompt = `Você é o Mestre de Craft do RPG Vexon — uma cidade cyberpunk sombria onde magia e tecnologia colidem.
+  const prompt = `${TOM_VEXON}
+
+Você é o Mestre de Craft do RPG Vexon.
 
 O jogador ${player.nome} (Nível ${player.nivel}) tentou criar algo combinando:
 Ingredientes: ${listaIngredientes}

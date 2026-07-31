@@ -205,8 +205,16 @@ export function entityAttacksPlayer(entidade_ativa_id, jogador_id) {
   if (entidade.status === 'morto') throw new Error(`${entidade.nome_unico} está morto e não pode atacar.`);
   if (player.hp_atual <= 0) throw new Error(`${player.nome} já está inconsciente.`);
 
+  // ---- PERFIL DE CLASSE (opcional, definido pelo mestre na criação) ----
+  // classeInfo é null para entidades sem classe (o padrão até hoje) — nesse
+  // caso todo o bloco abaixo colapsa exatamente no comportamento original.
+  const classeInfo       = entidade.classe ? getClasse(entidade.classe) : null;
+  const ataqueAssinatura = classeInfo?.ataque_assinatura ?? null;
+
   // ---- ACERTO ----
-  const modForca    = calculateModifier(entidade.forca || 10);
+  const modForca    = ataqueAssinatura
+    ? calculateModifier(entidade[ataqueAssinatura.atributo] ?? 10)
+    : calculateModifier(entidade.forca || 10);
   const { resultado: dadoBruto, critico, falhaCritica } = rollD20();
   const totalAcerto = dadoBruto + modForca;
   const caJogador   = player.ca || 10;
@@ -226,15 +234,19 @@ export function entityAttacksPlayer(entidade_ativa_id, jogador_id) {
   }
 
   // ---- DANO ----
-  // Tenta ler a primeira ação do monstro para pegar o dano definido no compêndio
+  // Tenta ler a primeira ação do monstro para pegar o dano definido no compêndio,
+  // a menos que a classe tenha um ataque de assinatura que o substitua.
   const acoes        = entidade.acoes ?? [];
   const primeiraAcao = Array.isArray(acoes) ? acoes[0] : null;
-  const stringDano   = primeiraAcao?.dano || DANO_MONSTRO_BASE;
+  const stringDano   = ataqueAssinatura ? ataqueAssinatura.dado_dano : (primeiraAcao?.dano || DANO_MONSTRO_BASE);
 
   let dadoDano = rollDiceString(stringDano);
   if (critico) dadoDano += rollDiceString(stringDano);
 
-  const bonusDano  = modForca + (entidade.bonus_dano || 0);
+  // Bônus fixo de dano por classe (Herdeiro Tático, Predador Estelar).
+  const bonusDadoClasse = classeInfo?.bonus_dano_dado ? rollDiceString(classeInfo.bonus_dano_dado) : 0;
+
+  const bonusDano  = modForca + (entidade.bonus_dano || 0) + bonusDadoClasse;
   const danoFinal  = Math.max(1, dadoDano + bonusDano);
 
   // ---- APLICA DANO AO JOGADOR ----
@@ -262,6 +274,8 @@ export function entityAttacksPlayer(entidade_ativa_id, jogador_id) {
     dano_bruto:   dadoDano,
     dano_bonus:   bonusDano,
     dano:         danoFinal,
+    tipo_dano:    ataqueAssinatura?.tipo_dano ?? classeInfo?.bonus_dano_tipo ?? "físico",
+    habilidade_usada: ataqueAssinatura?.nome_habilidade ?? null,
     atacante:     { nome: entidade.nome_unico },
     alvo: {
       nome:              player.nome,

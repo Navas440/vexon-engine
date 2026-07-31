@@ -400,6 +400,9 @@ function App() {
               {playerInfo?.personalidade && (
                 <p className="ficha-texto"><span className="ficha-label">Personalidade:</span> {playerInfo.personalidade}</p>
               )}
+              {playerInfo?.background && (
+                <p className="ficha-texto"><span className="ficha-label">História:</span> {playerInfo.background}</p>
+              )}
             </section>
 
             <section className="ficha-secao">

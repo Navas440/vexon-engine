@@ -5,6 +5,7 @@
 
 import db, { logWorldEvent, toJson, parseJson, getPlayer } from "../db/database.js";
 import { getFullWorldState, deltaWorldState, callOllamaWorld } from "../ia/worldEngine.js";
+import { TOM_VEXON } from "../loreVexon.js";
 
 // ==========================================
 // TABELAS DO BANCO DE DADOS
@@ -281,7 +282,7 @@ export function inicializarLojas() {
     {
       nome: "Clínica Clandestina Kallos",
       tipo: "fixa",
-      faccao: "VarnCore Remanescente",
+      faccao: "Remanescentes de Corven",
       local: "Nova Varnhold",
       desconto_base: 1.2,
     },
@@ -722,7 +723,9 @@ export async function gerarOfertaMercadoNegro(jogador_id, reputacao_mercado = 0)
   const nivelAcesso = reputacao_mercado >= 50 ? "alto" :
                       reputacao_mercado >= 0  ? "medio" : "baixo";
 
-  const prompt = `Você é Sombra — o informante do mercado negro de Vexon.
+  const prompt = `${TOM_VEXON}
+
+Você é Sombra — o informante do mercado negro de Vexon.
 
 Gere 3 itens únicos disponíveis HOJE no mercado negro.
 Os itens devem ser raros, ilegais ou difíceis de encontrar.
@@ -879,11 +882,11 @@ export function processarEventosEconomicos() {
     });
   }
 
-  // Resistência forte = consumíveis medicinais mais baratos (doações)
+  // VarnX Core forte = consumíveis medicinais mais baratos (doações)
   if (estado.poder_resistencia >= 60) {
     eventos.push({
-      titulo: "Distribuição da Resistência",
-      descricao: "Resistência distribui suprimentos — consumíveis de cura 20% mais baratos.",
+      titulo: "Distribuição da VarnX Core",
+      descricao: "VarnX Core distribui suprimentos — consumíveis de cura 20% mais baratos.",
       modificador: 0.8,
       itens_afetados: ["consumivel", "cura", "pocao"],
     });

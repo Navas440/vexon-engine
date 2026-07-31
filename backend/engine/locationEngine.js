@@ -5,6 +5,7 @@
 
 import db, { logWorldEvent, toJson, parseJson, getPlayer } from "../db/database.js";
 import { getFullWorldState, callOllamaWorld } from "../ia/worldEngine.js";
+import { TOM_VEXON } from "../loreVexon.js";
 
 // ==========================================
 // TABELAS DO BANCO DE DADOS
@@ -193,10 +194,10 @@ export function inicializarLocais() {
     {
       nome: "Coração Sombrio",
       tipo: "base",
-      descricao: "Base subterrânea secreta da Resistência em Nova Varnhold. Túneis reforçados, servidores zumbindo, monitores cobertos de dados. Elin Mirae coordena operações táticas daqui. Elyara usa como ponto de apoio.",
-      descricao_curta: "Base da Resistência. Segura e bem equipada.",
+      descricao: "Base subterrânea secreta da VarnX Core em Nova Varnhold, operada por Darian Varkos. Túneis reforçados, servidores zumbindo, monitores cobertos de dados. Elin Mirae coordena operações táticas daqui. Elyara usa como ponto de apoio.",
+      descricao_curta: "Base da VarnX Core. Segura e bem equipada.",
       nivel_perigo: 1,
-      faccao_controle: "Resistência",
+      faccao_controle: "VarnX Core",
       npcs_fixos: ["Dr. Elin Mirae"],
       itens_locais: ["Poção de Cura", "Kit Cirúrgico", "Frasco Criogênico"],
       locais_conectados: ["Nova Varnhold — Centro"],
@@ -204,7 +205,7 @@ export function inicializarLocais() {
       tempo_viagem_min: 30,
       custo_viagem: 0,
       restrito: 1,
-      requer_reputacao: "Resistência",
+      requer_reputacao: "VarnX Core",
     },
 
     // ── EXTERIOR ─────────────────────────────────────────────────────────────
@@ -620,11 +621,12 @@ export async function gerarLocalDinamico(contexto = {}) {
   const estado = getFullWorldState();
   const locaisExistentes = getLocaisAtivos().map(l => l.nome).join(", ");
 
-  const prompt = `Você é o criador de locais para o RPG Vexon — um universo cyberpunk sombrio.
-Gere UM local novo, coerente com o universo e que ainda não existe no mapa.
+  const prompt = `${TOM_VEXON}
+
+Você é o criador de locais para o RPG Vexon. Gere UM local novo, coerente com o universo e que ainda não existe no mapa.
 
 Estado do mundo:
-- Irmandade Varkos: ${estado.poder_irmandade}%
+- A Irmandade: ${estado.poder_irmandade}%
 - Darvoss Dynamics: ${estado.poder_darvoss}%
 - Quasiluz: ${estado.nivel_quasiluz}%
 - Influência do Vácuo: ${estado.influencia_vacuo}%
@@ -741,9 +743,9 @@ export async function narrarChegada(jogador_id, nome_local) {
     LIMIT 1
   `).get(jogador_id, nome_local);
 
-  const prompt = `Você é o narrador sombrio de Vexon.
-Narre a chegada do personagem ao local em 1-2 parágrafos, segunda pessoa.
-Tom: cyberpunk sombrio, visceral, imersivo.
+  const prompt = `${TOM_VEXON}
+
+Narre a chegada do personagem ao local em 1-2 parágrafos, segunda pessoa, visceral e imersivo.
 
 Local: ${local.nome} (${local.tipo})
 Descrição: ${local.descricao}

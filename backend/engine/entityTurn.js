@@ -8,6 +8,8 @@ import {
 } from "../db/database.js";
 import { rollDice, rollDetailed, calculateModifier } from "./diceEngine.js";
 import { getEmotionalContext, updateEmotionalState, addRichMemory, criarMemoriaRica } from "../ia/npcsoulEngine.js";
+import { getClasse } from "../classData.js";
+import { TOM_VEXON } from "../loreVexon.js";
 
 // ==========================================
 // CONFIGURAÇÃO DO OLLAMA
@@ -111,7 +113,8 @@ function buildPrompt(entidade, player) {
     : "";
   // -------------------------
 
-  const system = `Você controla a mente de um ${tipoLabel} em um RPG de fantasia sombria chamado Vexon.
+  const system = `${TOM_VEXON}
+Você controla a mente de um ${tipoLabel} nesse universo.
 Responda SOMENTE com um objeto JSON válido. Nenhum texto antes ou depois.
 Formato obrigatório: { "decisao": string, "pensamento": string }
 Decisões possíveis: "atacar", "fugir", "dialogar", "render"`;
@@ -141,26 +144,43 @@ Responda em JSON:`;
 // ==========================================
 
 function executarAtaque(entidade, player, jogador_id) {
-  const modForca     = calculateModifier(entidade.forca || 10);
+  // ---- PERFIL DE CLASSE (opcional, definido pelo mestre na criação) ----
+  // classeInfo é null para entidades sem classe (o padrão até hoje) — nesse
+  // caso todo o bloco abaixo colapsa exatamente no comportamento original.
+  const classeInfo       = entidade.classe ? getClasse(entidade.classe) : null;
+  const ataqueAssinatura = classeInfo?.ataque_assinatura ?? null;
+
+  const modAtaque = ataqueAssinatura
+    ? calculateModifier(entidade[ataqueAssinatura.atributo] ?? 10)
+    : calculateModifier(entidade.forca || 10);
   const d20          = rollDetailed("1d20");
   const dadoBruto    = d20.total;
   const caJogador    = player.ca || 10;
   const critico      = dadoBruto === 20;
   const falhaCritica = dadoBruto === 1;
-  const acertou      = !falhaCritica && (critico || (dadoBruto + modForca) >= caJogador);
+  const acertou      = !falhaCritica && (critico || (dadoBruto + modAtaque) >= caJogador);
 
   let dano              = 0;
   let hpJogadorRestante = player.hp_atual;
+  let tipoDano          = null;
+  let habilidadeUsada   = null;
 
   if (acertou) {
     const acoes      = Array.isArray(entidade.acoes) ? entidade.acoes : [];
-    const stringDano = acoes[0]?.dano || "1d6";
+    const stringDano = ataqueAssinatura ? ataqueAssinatura.dado_dano : (acoes[0]?.dano || "1d6");
     let dadoDano     = rollDetailed(stringDano).total;
     if (critico) dadoDano += rollDice(stringDano);
 
-    dano              = Math.max(1, dadoDano + modForca + (entidade.bonus_dano || 0));
+    // Bônus fixo de dano por classe (Herdeiro Tático, Predador Estelar) — somado
+    // ao dano final, não re-rolado no crítico (bônus por golpe, não dado base).
+    const bonusDadoClasse = classeInfo?.bonus_dano_dado ? rollDice(classeInfo.bonus_dano_dado) : 0;
+
+    dano              = Math.max(1, dadoDano + modAtaque + (entidade.bonus_dano || 0) + bonusDadoClasse);
     hpJogadorRestante = Math.max(0, player.hp_atual - dano);
     updatePlayerHP(jogador_id, hpJogadorRestante);
+
+    tipoDano        = ataqueAssinatura?.tipo_dano ?? classeInfo?.bonus_dano_tipo ?? "físico";
+    habilidadeUsada = ataqueAssinatura?.nome_habilidade ?? null;
   }
 
   // ---- ALMA: raiva sobe após atacar, esperança oscila ----
@@ -180,9 +200,11 @@ function executarAtaque(entidade, player, jogador_id) {
     critico,
     falha_critica:       falhaCritica,
     dado_bruto:          dadoBruto,
-    total_acerto:        dadoBruto + modForca,
+    total_acerto:        dadoBruto + modAtaque,
     ca_alvo:             caJogador,
     dano_causado:        dano,
+    tipo_dano:           tipoDano,
+    habilidade_usada:    habilidadeUsada,
     hp_jogador_restante: hpJogadorRestante,
     jogador_inconsciente: hpJogadorRestante <= 0,
   };

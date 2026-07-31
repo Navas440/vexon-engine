@@ -57,7 +57,7 @@ export const CLASSES = {
     ataque_assinatura: { atributo: "inteligencia", dado_dano: "1d8", tipo_dano: "necrótico", nome_habilidade: "Lâmina de Sombra / Raio Sombrio" },
     bonus_dano_dado: null,
     bonus_dano_tipo: null,
-    descricao: "Última linha de defesa da magia real; molda o vazio com o Grimório de Umbros e comanda a escuridão da cidade.",
+    descricao: "Última linha de defesa da magia real; molda o vazio com um grimório de sombras e comanda a escuridão da cidade.",
     habilidades_nivel1: [
       { nome: "Lâmina de Sombra e Raio Sombrio", descricao: "Corpo a corpo ou à distância (18m), Inteligência rege — 1d8+INT dano necrótico/mágico." },
       { nome: "Truques de Salão", descricao: "Ilusões menores sem efeito de combate — puramente narrativo." },

@@ -14,6 +14,7 @@ import { setupFactionRoutes, inicializarFaccoesVexon, iniciarFactionTicker } fro
 import { setupEconomyRoutes, inicializarLojas, iniciarEconomyTicker }        from "./engine/economyEngine.js";
 import { setupCraftRoutes, inicializarReceitas }                            from "./engine/craftEngine.js";
 import { setupLocationRoutes, inicializarLocais, iniciarLocationTicker, setLocalJogador } from "./engine/locationEngine.js";
+import { setupWorldRoutes, iniciarTickAutomatico } from "./ia/worldEngine.js";
 import { CLASSES, CLASSE_IDS, calcularCaClasse } from "./classData.js";
 import { calculateModifier } from "./engine/diceEngine.js";
 import { ITENS_INICIAIS, LIMITE_ITENS_INICIAIS, getItemInicial } from "./starterItems.js";
@@ -315,7 +316,7 @@ app.get("/api/starter-items", (_req, res) => {
 app.post("/api/player", (req, res) => {
   const {
     nome, classe, atributos = {},
-    idade, genero, aparencia_fisica = "", personalidade = "",
+    idade, genero, aparencia_fisica = "", personalidade = "", background = "",
     itens = [],
   } = req.body;
 
@@ -362,6 +363,7 @@ app.post("/api/player", (req, res) => {
       genero,
       aparencia_fisica: String(aparencia_fisica).trim().slice(0, 1000),
       personalidade:    String(personalidade).trim().slice(0, 1000),
+      background:       String(background).trim().slice(0, 2000),
       nivel:      1,
       xp:         0,
       hp_maximo:  hpMax,
@@ -457,10 +459,12 @@ async function iniciar() {
   setupEconomyRoutes(app);
   setupCraftRoutes(app);
   setupLocationRoutes(app);
+  setupWorldRoutes(app);
 
   iniciarFactionTicker();
   iniciarEconomyTicker();
   iniciarLocationTicker();
+  iniciarTickAutomatico();
 
   // Verifica Ollama antes de subir
   const saude = await checkOllamaHealth();

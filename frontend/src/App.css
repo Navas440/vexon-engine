@@ -782,6 +782,7 @@ opacity:0;
 .creation-atributos h2,
 .creation-classe-detalhe h2,
 .creation-persona h2,
+.creation-background h2,
 .creation-itens h2 {
   font-family: 'Orbitron', sans-serif;
   color: var(--neon-cyan);
@@ -878,6 +879,27 @@ opacity:0;
 .persona-field textarea:focus {
   outline: none;
   box-shadow: 0 0 8px var(--neon-purple);
+}
+
+.creation-background {
+  margin-top: -4px;
+}
+
+.background-input {
+  width: 100%;
+  background: var(--panel-glass);
+  border: 1px solid rgba(0, 240, 255, 0.4);
+  color: var(--chrome-text);
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 1rem;
+  line-height: 1.5;
+  padding: 12px 14px;
+  resize: vertical;
+}
+
+.background-input:focus {
+  outline: none;
+  box-shadow: 0 0 8px var(--neon-cyan);
 }
 
 .persona-field-full {

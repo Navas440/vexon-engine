@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { handleEntityCreation } from "./entityHandler.js";
 import { getOrCreateActiveSession, addMessageToSession } from "./db/database.js";
+import { TOM_VEXON } from "./loreVexon.js";
 
 // ==========================================
 // CLIENTE OLLAMA — VEXON
@@ -17,17 +18,25 @@ const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "mistral";
 const HEALTH_TIMEOUT = 5_000;
 const CHAT_TIMEOUT   = 30_000;
 
-const SISTEMA_MESTRE = `Você é o Mestre Supremo de Vexon, narrador de um RPG sombrio de fantasia.
-Narre com atmosfera e tensão, em português, em parágrafos curtos e imersivos.
+const SISTEMA_MESTRE = `${TOM_VEXON}
+Você é o Mestre Supremo de Vexon. Narre com atmosfera e tensão, em português, em parágrafos curtos e imersivos.
 Nunca mencione mecânicas de jogo, JSON ou números — apenas narrativa.`;
 
-const SISTEMA_CRIACAO = `Você é o Mestre Supremo de Vexon.
+const SISTEMA_CRIACAO = `${TOM_VEXON}
+Você é o Mestre Supremo de Vexon.
 Se o jogador pedir a criação de um NPC, item ou monstro, responda APENAS com um JSON válido,
 sem nenhum texto antes ou depois, em um dos formatos abaixo:
 
-{"action":"create_npc","data":{"nome":"...","alinhamento":"...","nivel_social":"...","arquetipo":"...","personalidade":"...","descricao":"...","habilidade_tematica":"..."}}
+{"action":"create_npc","data":{"nome":"...","alinhamento":"...","nivel_social":"...","arquetipo":"...","personalidade":"...","descricao":"...","habilidade_tematica":"...","classe":"..."}}
 {"action":"create_item","data":{"nome":"...","raridade":"...","tipo":"...","descricao":"...","habilidade_tematica":"...","efeito":{"tipo":"...","intensidade":"...","alvo":"..."}}}
-{"action":"create_monster","data":{"nome":"...","ameaca":"...","tipo":"...","descricao":"...","habilidade_tematica":"..."}}
+{"action":"create_monster","data":{"nome":"...","ameaca":"...","tipo":"...","descricao":"...","habilidade_tematica":"...","classe":"..."}}
+
+O campo "classe" é OPCIONAL em create_npc/create_monster — só inclua quando o NPC/monstro for
+narrativamente relevante em combate (não para todo comerciante, civil ou criatura comum). Se
+incluído, use exatamente um destes 12 ids: herdeiro_tatico, anomalia_bioenergetica,
+ilusionista_das_sombras, arconte, tecno_mago, hacker_corporativo, algoz_cibernetico,
+bastiao_implacavel, herdeiro_do_mar, herdeiro_de_pedra, desperto_vex, predador_estelar.
+Omita o campo ou use null se a entidade não precisar de uma classe de combate.
 
 Nunca defina HP, ataque, defesa ou qualquer valor numérico final — isso é responsabilidade exclusiva do backend.
 

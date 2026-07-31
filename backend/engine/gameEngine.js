@@ -19,6 +19,8 @@ import { rollDice }                             from "./diceEngine.js";
 import { getLojas, getEstoqueLoja, comprarItem, venderItem } from "./economyEngine.js";
 import { iniciarViagem, getLocaisConectados, getLocaisAtivos, getPosicaoJogador } from "./locationEngine.js";
 import { getFaccaoPorNome, modificarReputacao } from "./factionEngine.js";
+import { getWorldContextForPrompt, deltaWorldState, registrarEventoMundo } from "../ia/worldEngine.js";
+import { TOM_VEXON, REGRA_SELO } from "../loreVexon.js";
 
 // ==========================================
 // CONFIGURAÇÃO DO OLLAMA
@@ -133,14 +135,25 @@ function buildMasterSystemPrompt(player, snapshot) {
     .map(e => `${e.nome_unico} (${e.hp_atual}/${e.hp_maximo} HP, status: ${e.status})`)
     .join(", ") || "Nenhum";
 
-  return `Você é o Mestre de RPG do mundo sombrio de Vexon — um universo de fantasia brutal onde magia e tecnologia coexistem em ruínas.
+  const blocoBackground = player.background
+    ? `\nBackground do personagem (escrito pelo jogador na criação — use isso para criar ganchos, referências e` +
+      ` consequências narrativas ao longo da campanha; traga elementos dele à tona quando fizer sentido, não precisa` +
+      ` ser em toda cena):\n"${player.background}"\n`
+    : "";
+
+  return `${TOM_VEXON}
+
 Seu estilo: narração imersiva, tensa, com consequências reais. Máximo de 3 parágrafos por resposta.
 Nunca quebre a imersão. Nunca mencione dados, modificadores ou mecânicas diretamente na narrativa.
 
-Estado atual do mundo:
+Estado atual da cena:
 - Jogador: ${player.nome} | Nível ${player.nivel} | ${player.hp_atual}/${player.hp_maximo} HP | ${player.ouro} moedas
 - Inimigos na cena: ${inimigosAtivos}
-- Objetivo do jogador: ${player.objetivo || "Desconhecido"}`;
+- Objetivo do jogador: ${player.objetivo || "Desconhecido"}
+${blocoBackground}
+${getWorldContextForPrompt()}
+
+${REGRA_SELO}`;
 }
 
 /**
@@ -160,12 +173,41 @@ async function narrar(sessao_id, systemPrompt, userPrompt, maxHistorico = 8) {
     ...historico,
   ];
 
-  const resposta = await callOllama(messages, NARRATIVE_TIMEOUT);
+  const respostaBruta = await callOllama(messages, NARRATIVE_TIMEOUT);
+  const resposta       = aplicarTagSelo(respostaBruta);
 
-  // Salva a resposta do mestre no histórico
+  // Salva a resposta do mestre no histórico (já sem a tag do Selo)
   addMessageToSession(sessao_id, "assistant", resposta);
 
   return resposta;
+}
+
+/**
+ * Detecta a tag opcional "[SELO:+N]" que o Mestre pode usar para, por conta
+ * própria, avançar a rachadura do Grande Selo em um clímax cósmico real.
+ * Aplica o delta no estado do mundo, registra o evento e remove a tag do
+ * texto antes de devolvê-lo — o jogador nunca vê a tag crua na narrativa.
+ */
+function aplicarTagSelo(texto) {
+  const match = texto.match(/\[SELO:\s*([+-]?\d+)\]/i);
+  if (!match) return texto;
+
+  const delta = Math.max(-10, Math.min(10, parseInt(match[1], 10) || 0));
+  const textoLimpo = texto.replace(match[0], "").trim();
+
+  if (delta !== 0) {
+    deltaWorldState("rachadura_selo", delta);
+    registrarEventoMundo(
+      "cosmico",
+      delta > 0 ? "O Mestre sente o Selo ceder um pouco mais" : "O Selo se estabiliza levemente",
+      textoLimpo.slice(0, 300),
+      {},
+      null,
+      true
+    );
+  }
+
+  return textoLimpo;
 }
 
 // ==========================================
@@ -255,6 +297,7 @@ Narre o resultado sem citar números.`;
         const mech = turnoInimigo.dados_mecanicos;
         const promptReacao = `${alvo.nome_unico} decidiu: ${turnoInimigo.decisao}. Pensamento interno: "${turnoInimigo.pensamento}".
 ${mech.tipo === "ataque" ? `Atacou o jogador: ${mech.acertou ? `acertou, causando ${mech.dano_causado} de dano.` : "errou."}` : ""}
+${mech.habilidade_usada ? `${alvo.nome_unico} usou sua habilidade de assinatura "${mech.habilidade_usada}" (dano ${mech.tipo_dano}).` : ""}
 ${mech.tipo === "fuga" ? "A entidade fugiu usando o Sistema Nemesis." : ""}
 ${mech.tipo === "dialogo" ? "A entidade pediu para dialogar." : ""}
 Narre a reação em 1 parágrafo curto.`;

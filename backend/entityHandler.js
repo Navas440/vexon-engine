@@ -9,6 +9,7 @@ import {
   toJson,
 } from "./db/database.js";
 import { calculateModifier } from "./engine/diceEngine.js";
+import { CLASSE_IDS, getClasse, calcularCaClasse } from "./classData.js";
 
 // ==========================================
 // CONSTANTES E TABELAS
@@ -100,6 +101,17 @@ function sanitizeStr(val, maxLen = 200, fallback = "") {
 function clamp(val, min, max) {
   const n = Number(val);
   return isNaN(n) ? min : Math.max(min, Math.min(max, n));
+}
+
+/**
+ * Valida uma classe opcional vinda do mestre (IA ou criação manual).
+ * Nunca lança erro — uma classe ausente, vazia ou alucinada (fora das 12
+ * válidas) simplesmente vira null, preservando o comportamento clássico
+ * (sem classe) em vez de quebrar a criação da entidade.
+ */
+function validarClasse(val) {
+  const chave = sanitizeStr(val, 50, null)?.toLowerCase() ?? null;
+  return chave && CLASSE_IDS.includes(chave) ? chave : null;
 }
 
 // ==========================================
@@ -269,15 +281,23 @@ export async function handleNpcCreation(data, persistir = true) {
   const caFinal     = calcularCaNpc(modDes);
   const atrs        = atributosParaBanco(stats);
 
+  // ---- CLASSE OPCIONAL (o mestre decide se este NPC merece uma) ----
+  // Só a CA é afetada, e só se a classe definir uma fórmula própria — o HP
+  // continua escalando por nível social, igual a qualquer NPC sem classe.
+  const classeId    = validarClasse(data.classe);
+  const classeInfo  = classeId ? getClasse(classeId) : null;
+  const caAjustada  = classeInfo?.ca_formula ? calcularCaClasse(classeId, atrs) : caFinal;
+
   const npc = {
     nome:               sanitizeStr(data.nome, 100),
+    classe:             classeId,
     tamanho:            sanitizeStr(data.tamanho, 30, "Médio"),
     tipo:               sanitizeStr(data.tipo, 50, "humanoide"),
     alinhamento:        sanitizeStr(data.alinhamento, 50),
     nivel_social:       sanitizeStr(data.nivel_social, 50, "comum"),
     arquetipo:          sanitizeStr(data.arquetipo, 100, ""),
     deslocamento:       sanitizeStr(data.deslocamento, 20, "9m"),
-    ca:                 caFinal,
+    ca:                 caAjustada,
     hp:                 hpFinal,
     nivel:              nivelSocial,
     idiomas:            sanitizeStr(data.idiomas, 200, "Comum"),
@@ -326,14 +346,20 @@ export async function handleMonsterCreation(data, playerLevel = 1, persistir = t
   const caFinal    = calcularCaMonstro(nivelFinal, modDes);
   const atrs       = atributosParaBanco(stats);
 
+  // ---- CLASSE OPCIONAL (o mestre decide se este monstro merece uma) ----
+  const classeId    = validarClasse(data.classe);
+  const classeInfo  = classeId ? getClasse(classeId) : null;
+  const caAjustada  = classeInfo?.ca_formula ? calcularCaClasse(classeId, atrs) : caFinal;
+
   const monstro = {
     nome:               sanitizeStr(data.nome, 100),
+    classe:             classeId,
     nome_unico:         sanitizeStr(data.nome_unico ?? data.nome, 100),
     tamanho:            sanitizeStr(data.tamanho, 30, "Médio"),
     tipo:               sanitizeStr(data.tipo, 50, "monstro"),
     alinhamento:        sanitizeStr(data.alinhamento, 50, "neutro"),
     deslocamento:       sanitizeStr(data.deslocamento, 20, "9m"),
-    ca:                 caFinal,
+    ca:                 caAjustada,
     hp_maximo:          hpFinal,
     hp_atual:           hpFinal,
     nivel:              nivelFinal,

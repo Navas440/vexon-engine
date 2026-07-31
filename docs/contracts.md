@@ -35,7 +35,8 @@ Formato obrigatório:
     "arquetipo": "mercador | plebeu | guarda | aventureiro | clerigo | mercenario | guerreiro | mago | nobre | criminoso",
     "personalidade": "string",
     "descricao": "string",
-    "habilidade_tematica": "string"
+    "habilidade_tematica": "string",
+    "classe": "string (opcional, uma das 12 classes de combate)"
   }
 }
 ```
@@ -43,6 +44,9 @@ Formato obrigatório:
 Observações:
 - Nenhum atributo numérico é permitido.
 - O backend traduz nivel_social e alinhamento em influência e comportamento interno.
+- "classe" é opcional — só incluir quando o NPC for narrativamente relevante em combate (não para
+  todo comerciante/civil). Valores fora das 12 classes válidas são ignorados (viram null) pelo
+  backend, sem gerar erro.
 
 ---
 
@@ -87,7 +91,8 @@ Formato obrigatório:
     "ameaca": "baixa | media | alta | elite | chefe",
     "tipo": "string",
     "descricao": "string",
-    "habilidade_tematica": "string"
+    "habilidade_tematica": "string",
+    "classe": "string (opcional, uma das 12 classes de combate)"
   }
 }
 ```
@@ -96,6 +101,9 @@ Observações:
 - A IA define apenas a ameaça narrativa.
 - O backend traduz "ameaca" em nível numérico.
 - HP, ataque e defesa são calculados exclusivamente pelo backend.
+- "classe" é opcional — só incluir quando o monstro for narrativamente relevante em combate (ex:
+  um chefe). Valores fora das 12 classes válidas são ignorados (viram null) pelo backend, sem gerar
+  erro.
 
 ---
 

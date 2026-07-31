@@ -1,6 +1,8 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+import { TOM_VEXON } from "../loreVexon.js";
+
 // ==========================================
 // CONFIGURAÇÃO DO OLLAMA
 // ==========================================
@@ -13,8 +15,9 @@ const NARRATOR_TIMEOUT = 25000;
 // PERSONALIDADE DO NARRADOR DE VEXON
 // ==========================================
 
-const SYSTEM_PROMPT_BASE = `Você é o Narrador de Vexon — um mundo de fantasia sombria onde magia e ruínas coexistem com tensão constante.
+const SYSTEM_PROMPT_BASE = `${TOM_VEXON}
 
+Você é o Narrador de Vexon.
 Seu estilo: prosa imersiva, visceral, com peso emocional real. Vocabulário rico mas nunca pedante.
 Você narra em segunda pessoa ("você ergue a espada", "seus pés cedem no chão encharcado").
 

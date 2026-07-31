@@ -5,6 +5,7 @@
 
 import db, { logWorldEvent, toJson, parseJson, getPlayer } from "../db/database.js";
 import { callOllamaWorld, getFullWorldState } from "../ia/worldEngine.js";
+import { TOM_VEXON } from "../loreVexon.js";
 // ==========================================
 // TABELAS DO BANCO DE DADOS
 // ==========================================
@@ -528,7 +529,7 @@ export const TEMPLATE_QUESTS_VEXON = {
     titulo_template: "Investigue o Ritual da Irmandade",
     descricao_template: (ctx) =>
       `Sinais de magia sintética foram detectados em ${ctx.local || "Bairro das Lanternas Azuis"}. ` +
-      `A Irmandade Varkos está planejando algo. Descubra o quê antes que seja tarde demais.`,
+      `A Irmandade está planejando algo. Descubra o quê antes que seja tarde demais.`,
     recompensa_xp: 180,
     recompensa_ouro: 120,
     impacto_mundo: { poder_irmandade: -2, rachadura_selo: -3 },
@@ -583,9 +584,9 @@ export async function gerarQuestDinamica(jogador_id, categoria = "dinamica", pla
   const contextoCategoria = {
     resgate: `Crianças estão desaparecendo no Projeto Genesis da Darvoss Dynamics. ` +
              `Atualmente ${estado.criancas_desaparecidas} confirmadas.`,
-    faccao: `Irmandade Varkos está a ${estado.poder_irmandade}% de poder. ` +
+    faccao: `A Irmandade está a ${estado.poder_irmandade}% de poder. ` +
             `Darvoss Dynamics a ${estado.poder_darvoss}%. ` +
-            `A Resistência precisa de heróis.`,
+            `A VarnX Core precisa de heróis.`,
     cosmico: `Grande Selo ${estado.rachadura_selo}% rachado. Vácuo ${estado.influencia_vacuo}% ativo. ` +
              `Khal-Reth a ${estado.khal_reth_distancia}% de distância.`,
     urbano: `Becos de Vexon City e Nova Varnhold fervilham de intriga. ` +
@@ -594,15 +595,16 @@ export async function gerarQuestDinamica(jogador_id, categoria = "dinamica", pla
               `Gere uma quest que faça sentido com o caos atual.`,
   };
 
-  const prompt = `Você é o criador de quests para o RPG Vexon.
-Gere UMA quest única, dinâmica e coerente com o estado do mundo.
+  const prompt = `${TOM_VEXON}
+
+Você é o criador de quests para o RPG Vexon. Gere UMA quest única, dinâmica e coerente com o estado do mundo.
 
 Contexto:
 - Jogador: ${player?.nome} (Nível ${player_level})
 - Categoria desejada: ${categoria}
 - ${contextoCategoria[categoria]}
 - Mundo: Grande Selo ${estado.rachadura_selo}% | Quasiluz ${estado.nivel_quasiluz}% | Irmandade ${estado.poder_irmandade}%
-
+${player?.background ? `- Background do jogador (use para dar um gancho pessoal à quest quando fizer sentido): "${player.background}"\n` : ""}
 Gere SOMENTE um JSON válido, sem texto antes ou depois:
 {
   "titulo": "Nome épico da quest",

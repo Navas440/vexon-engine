@@ -10,6 +10,7 @@ import {
 import { rollD20Test, DC }                                    from "../engine/skillEngine.js";
 import { getEmotionalContext, processDialogueEmotions }       from "./npcsoulEngine.js";
 import db                                                     from "../db/database.js";
+import { TOM_VEXON }                                          from "../loreVexon.js";
 
 // ==========================================
 // CONFIGURAÇÃO DO OLLAMA
@@ -125,7 +126,9 @@ function buildEntitySystemPrompt(entidade, player) {
     ?? entidade.relacao_com_jogador
     ?? "Desconhecido";
 
-  return `Você é ${entidade.nome_unico}, um personagem do RPG sombrio Vexon.
+  return `${TOM_VEXON}
+
+Você é ${entidade.nome_unico}, um personagem que vive nesse universo.
 Personalidade: ${personalidade}
 Estado físico: ${estadoFisico} (${entidade.hp_atual}/${entidade.hp_maximo} HP)
 Relação com ${player?.nome ?? "o jogador"}: ${descricaoRelacao}

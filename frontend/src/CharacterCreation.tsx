@@ -73,6 +73,7 @@ function CharacterCreation({ onCreated }: CharacterCreationProps) {
   const [genero, setGenero] = useState<'masculino' | 'feminino' | ''>('');
   const [aparenciaFisica, setAparenciaFisica] = useState('');
   const [personalidade, setPersonalidade] = useState('');
+  const [background, setBackground] = useState('');
   const [itensSelecionados, setItensSelecionados] = useState<string[]>([]);
 
   const [enviando, setEnviando] = useState(false);
@@ -133,6 +134,7 @@ function CharacterCreation({ onCreated }: CharacterCreationProps) {
           genero,
           aparencia_fisica: aparenciaFisica.trim(),
           personalidade: personalidade.trim(),
+          background: background.trim(),
           itens: itensSelecionados,
         }),
       });
@@ -278,6 +280,23 @@ function CharacterCreation({ onCreated }: CharacterCreationProps) {
                 rows={3}
               />
             </div>
+          </section>
+
+          <section className="creation-background">
+            <h2>HISTÓRIA DO PERSONAGEM</h2>
+            <p className="creation-atributos-hint">
+              Opcional, mas recomendado — o Mestre (IA) lê essa história e a costura nos ganchos, NPCs e eventos
+              que ele narra durante o jogo. De onde seu personagem veio, o que perdeu, o que busca em Vexon.
+            </p>
+            <textarea
+              id="background-input"
+              className="background-input"
+              value={background}
+              onChange={(e) => setBackground(e.target.value)}
+              placeholder="Ex: Cresceu nos becos de Nova Varnhold contrabandeando peças de Quasiluz até a Darvoss Dynamics queimar seu bairro. Agora persegue quem deu a ordem..."
+              maxLength={2000}
+              rows={6}
+            />
           </section>
 
           {classeSelecionada && atributos && (

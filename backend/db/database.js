@@ -83,6 +83,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS npcs (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     nome                TEXT NOT NULL,
+    classe              TEXT DEFAULT NULL,
     tamanho             TEXT,
     tipo                TEXT,
     alinhamento         TEXT,
@@ -134,6 +135,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS monstros (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     nome                TEXT NOT NULL,
+    classe              TEXT DEFAULT NULL,
     tamanho             TEXT,
     tipo                TEXT,
     alinhamento         TEXT,
@@ -177,6 +179,7 @@ db.exec(`
     genero          TEXT DEFAULT NULL,
     aparencia_fisica TEXT DEFAULT '',
     personalidade   TEXT DEFAULT '',
+    background      TEXT DEFAULT '',
     deslocamento    TEXT DEFAULT '9m',
     nivel           INTEGER DEFAULT 1,
     xp              INTEGER DEFAULT 0,
@@ -328,10 +331,13 @@ function addColumnIfMissing(tabela, coluna, definicao) {
 
 addColumnIfMissing('entidades_vivas', 'nivel', 'INTEGER DEFAULT 1');
 addColumnIfMissing('jogadores', 'classe', 'TEXT DEFAULT NULL');
+addColumnIfMissing('npcs', 'classe', 'TEXT DEFAULT NULL');
+addColumnIfMissing('monstros', 'classe', 'TEXT DEFAULT NULL');
 addColumnIfMissing('jogadores', 'idade', 'INTEGER DEFAULT NULL');
 addColumnIfMissing('jogadores', 'genero', 'TEXT DEFAULT NULL');
 addColumnIfMissing('jogadores', 'aparencia_fisica', "TEXT DEFAULT ''");
 addColumnIfMissing('jogadores', 'personalidade', "TEXT DEFAULT ''");
+addColumnIfMissing('jogadores', 'background', "TEXT DEFAULT ''");
 
 // ==========================================
 // COMPÊNDIO — NPCs
@@ -340,12 +346,12 @@ addColumnIfMissing('jogadores', 'personalidade', "TEXT DEFAULT ''");
 export function insertNpc(npc) {
   const stmt = db.prepare(`
     INSERT INTO npcs (
-      nome, tamanho, tipo, alinhamento, nivel_social, arquetipo, deslocamento,
+      nome, classe, tamanho, tipo, alinhamento, nivel_social, arquetipo, deslocamento,
       ca, hp, forca, destreza, resistencia, inteligencia, sabedoria, carisma, ouro,
       memoria, relacao_com_jogador, objetivo, faccao, inimigos, aliados, territorio,
       nivel, idiomas, habilidades_passivas, acoes, personalidade, descricao, influencia, tendencia
     ) VALUES (
-      @nome, @tamanho, @tipo, @alinhamento, @nivel_social, @arquetipo, @deslocamento,
+      @nome, @classe, @tamanho, @tipo, @alinhamento, @nivel_social, @arquetipo, @deslocamento,
       @ca, @hp, @forca, @destreza, @resistencia, @inteligencia, @sabedoria, @carisma, @ouro,
       @memoria, @relacao_com_jogador, @objetivo, @faccao, @inimigos, @aliados, @territorio,
       @nivel, @idiomas, @habilidades_passivas, @acoes, @personalidade, @descricao, @influencia, @tendencia
@@ -353,6 +359,7 @@ export function insertNpc(npc) {
   `);
   return stmt.run({
     ...npc,
+    classe:   npc.classe ?? null,
     memoria:  toJson(npc.memoria),
     inimigos: toJson(npc.inimigos),
     aliados:  toJson(npc.aliados),
@@ -400,12 +407,12 @@ export function getItemsByType(tipo) {
 export function insertMonster(monster) {
   const stmt = db.prepare(`
     INSERT INTO monstros (
-      nome, tamanho, tipo, alinhamento, deslocamento, nome_unico,
+      nome, classe, tamanho, tipo, alinhamento, deslocamento, nome_unico,
       hp_maximo, hp_atual, ca, forca, destreza, resistencia, inteligencia, sabedoria, carisma, ouro,
       memoria, relacao_com_jogador, objetivo, faccao, inimigos, aliados, territorio,
       habilidades_passivas, acoes, descricao, ameaca, nivel
     ) VALUES (
-      @nome, @tamanho, @tipo, @alinhamento, @deslocamento, @nome_unico,
+      @nome, @classe, @tamanho, @tipo, @alinhamento, @deslocamento, @nome_unico,
       @hp_maximo, @hp_atual, @ca, @forca, @destreza, @resistencia, @inteligencia, @sabedoria, @carisma, @ouro,
       @memoria, @relacao_com_jogador, @objetivo, @faccao, @inimigos, @aliados, @territorio,
       @habilidades_passivas, @acoes, @descricao, @ameaca, @nivel
@@ -413,6 +420,7 @@ export function insertMonster(monster) {
   `);
   return stmt.run({
     ...monster,
+    classe:     monster.classe ?? null,
     nome_unico: monster.nome_unico ?? monster.nome,
     memoria:  toJson(monster.memoria),
     inimigos: toJson(monster.inimigos),
@@ -438,12 +446,12 @@ export function getMonstersByLevel(nivelMin, nivelMax) {
 export function insertPlayer(player) {
   const stmt = db.prepare(`
     INSERT INTO jogadores (
-      nome, classe, idade, genero, aparencia_fisica, personalidade,
+      nome, classe, idade, genero, aparencia_fisica, personalidade, background,
       nivel, xp, hp_maximo, hp_atual, ca,
       forca, destreza, resistencia, inteligencia, sabedoria, carisma, ouro,
       objetivo, faccao, inimigos, aliados, territorio
     ) VALUES (
-      @nome, @classe, @idade, @genero, @aparencia_fisica, @personalidade,
+      @nome, @classe, @idade, @genero, @aparencia_fisica, @personalidade, @background,
       @nivel, @xp, @hp_maximo, @hp_atual, @ca,
       @forca, @destreza, @resistencia, @inteligencia, @sabedoria, @carisma, @ouro,
       @objetivo, @faccao, @inimigos, @aliados, @territorio
@@ -456,6 +464,7 @@ export function insertPlayer(player) {
     genero:           player.genero ?? null,
     aparencia_fisica: player.aparencia_fisica ?? '',
     personalidade:    player.personalidade ?? '',
+    background:       player.background ?? '',
     inimigos:         toJson(player.inimigos),
     aliados:          toJson(player.aliados),
   });
