@@ -25,6 +25,11 @@ export const CLASSES = {
     ataque_assinatura: null,
     bonus_dano_dado: "1d6",
     bonus_dano_tipo: "furtivo",
+    pericias_iniciais: [
+      { pericia: "furtividade",  bonus: 3 },
+      { pericia: "acrobacia",    bonus: 2 },
+      { pericia: "investigacao", bonus: 1 },
+    ],
     descricao: "Mestre do combate urbano, do silêncio e da análise tática. Usa a tecnologia, o treinamento brutal e as sombras a seu favor.",
     habilidades_nivel1: [
       { nome: "Visão Tática", descricao: "Bônus: marca um inimigo, concede vantagem no próximo ataque contra ele e revela seu HP." },
@@ -41,6 +46,12 @@ export const CLASSES = {
     ataque_assinatura: { atributo: "carisma", dado_dano: "1d10", tipo_dano: "energia", nome_habilidade: "Pulso de Quasiluz" },
     bonus_dano_dado: null,
     bonus_dano_tipo: null,
+    pericias_iniciais: [
+      { pericia: "atletismo",     bonus: 3 },
+      { pericia: "percepcao",     bonus: 1 },
+      { pericia: "sobrevivencia", bonus: 1 },
+      { pericia: "intimidacao",   bonus: 1 },
+    ],
     descricao: "Resultado da bioengenharia avançada e nanotecnologia celular; um núcleo bioenergético quântico pulsa em seu centro.",
     habilidades_nivel1: [
       { nome: "Pulso de Quasiluz", descricao: "Ataque à distância (18m), Carisma rege acerto e dano — 1d10+CAR de dano de energia." },
@@ -57,6 +68,11 @@ export const CLASSES = {
     ataque_assinatura: { atributo: "inteligencia", dado_dano: "1d8", tipo_dano: "necrótico", nome_habilidade: "Lâmina de Sombra / Raio Sombrio" },
     bonus_dano_dado: null,
     bonus_dano_tipo: null,
+    pericias_iniciais: [
+      { pericia: "enganacao",       bonus: 3 },
+      { pericia: "furtividade",     bonus: 2 },
+      { pericia: "prestidigitacao", bonus: 1 },
+    ],
     descricao: "Última linha de defesa da magia real; molda o vazio com um grimório de sombras e comanda a escuridão da cidade.",
     habilidades_nivel1: [
       { nome: "Lâmina de Sombra e Raio Sombrio", descricao: "Corpo a corpo ou à distância (18m), Inteligência rege — 1d8+INT dano necrótico/mágico." },
@@ -73,6 +89,11 @@ export const CLASSES = {
     ataque_assinatura: { atributo: "sabedoria", dado_dano: "1d10", tipo_dano: "elemental", nome_habilidade: "Sintonização Primordial" },
     bonus_dano_dado: null,
     bonus_dano_tipo: null,
+    pericias_iniciais: [
+      { pericia: "percepcao",     bonus: 3 },
+      { pericia: "intuicao",      bonus: 2 },
+      { pericia: "sobrevivencia", bonus: 1 },
+    ],
     descricao: "Mestre da Magia Ancestral, vestindo as tradicionais vestes vermelhas e máscaras de ferro. Seu corpo é canal para os elementos primordiais.",
     habilidades_nivel1: [
       { nome: "Sintonização Primordial", descricao: "Ataque à distância (18m), Sabedoria rege — 1d10+SAB de dano." },
@@ -89,6 +110,11 @@ export const CLASSES = {
     ataque_assinatura: { atributo: "inteligencia", dado_dano: "1d10", tipo_dano: "arcano-digital", nome_habilidade: "Compilador Sintético" },
     bonus_dano_dado: null,
     bonus_dano_tipo: null,
+    pericias_iniciais: [
+      { pericia: "tecnologia",   bonus: 3 },
+      { pericia: "investigacao", bonus: 2 },
+      { pericia: "historia",     bonus: 1 },
+    ],
     descricao: "Confia na matemática, nos circuitos e na física. Domina a Magia Sintética através de um Deck Arcano — um computador tático de pulso.",
     habilidades_nivel1: [
       { nome: "Compilador Sintético", descricao: "Truques infinitos + slots de magia nível 1 (não modelado nesta versão), Inteligência rege." },
@@ -105,6 +131,11 @@ export const CLASSES = {
     ataque_assinatura: null,
     bonus_dano_dado: null,
     bonus_dano_tipo: null,
+    pericias_iniciais: [
+      { pericia: "tecnologia",   bonus: 3 },
+      { pericia: "investigacao", bonus: 2 },
+      { pericia: "percepcao",    bonus: 1 },
+    ],
     descricao: "Opera remotamente via um drone de combate; raramente entra em risco físico direto.",
     habilidades_nivel1: [
       { nome: "Presença Remota", descricao: "Age via drone: CA=10+INT+DES, HP=2×nível (pool de drone não modelado nesta versão — usa a CA do jogador)." },
@@ -121,6 +152,11 @@ export const CLASSES = {
     ataque_assinatura: null,
     bonus_dano_dado: null,
     bonus_dano_tipo: null,
+    pericias_iniciais: [
+      { pericia: "atletismo",     bonus: 3 },
+      { pericia: "intimidacao",   bonus: 2 },
+      { pericia: "sobrevivencia", bonus: 1 },
+    ],
     descricao: "Chassi blindado por implantes de combate pesado, imune a venenos gasosos.",
     habilidades_nivel1: [
       { nome: "Chassi Blindado", descricao: "CA=13+CON, imune a veneno gasoso." },
@@ -137,6 +173,11 @@ export const CLASSES = {
     ataque_assinatura: null,
     bonus_dano_dado: null,
     bonus_dano_tipo: null,
+    pericias_iniciais: [
+      { pericia: "atletismo",   bonus: 3 },
+      { pericia: "intimidacao", bonus: 2 },
+      { pericia: "persuasao",   bonus: 1 },
+    ],
     descricao: "Tanque dedicado a absorver dano para proteger aliados, sacrificando mobilidade por resiliência.",
     habilidades_nivel1: [
       { nome: "Intervenção de Risco", descricao: "Reação: assume dano de um aliado, ganha 2 Cargas (recurso não modelado nesta versão)." },
@@ -153,6 +194,11 @@ export const CLASSES = {
     ataque_assinatura: null,
     bonus_dano_dado: null,
     bonus_dano_tipo: null,
+    pericias_iniciais: [
+      { pericia: "atletismo",     bonus: 3 },
+      { pericia: "sobrevivencia", bonus: 2 },
+      { pericia: "intimidacao",   bonus: 1 },
+    ],
     descricao: "Descendente de uma linhagem aquática ancestral, alterna entre posturas de maré em combate.",
     habilidades_nivel1: [
       { nome: "Sangue de Enki", descricao: "Respira na água, visão no escuro, ignora terreno difícil — sem efeito de combate." },
@@ -169,6 +215,11 @@ export const CLASSES = {
     ataque_assinatura: null,
     bonus_dano_dado: null,
     bonus_dano_tipo: null,
+    pericias_iniciais: [
+      { pericia: "persuasao",   bonus: 3 },
+      { pericia: "atletismo",   bonus: 2 },
+      { pericia: "intimidacao", bonus: 1 },
+    ],
     descricao: "Herdeiro de uma linhagem de guerreiros de cristal vivo (Osvaryen), pele endurecida como granito.",
     habilidades_nivel1: [
       { nome: "Arsenal de Osvaryen", descricao: "Bônus: invoca arma de cristal (espada/martelo/lança) — não modelado mecanicamente nesta versão além da flavor." },
@@ -185,6 +236,17 @@ export const CLASSES = {
     ataque_assinatura: { atributo: "forca", dado_dano: "1d8", tipo_dano: "natural", nome_habilidade: "Golpe Instintivo" },
     bonus_dano_dado: null,
     bonus_dano_tipo: null,
+    // Readme.txt dá Atletismo/Acrobacia/Percepção em +3/+2/+1, mas a ORDEM depende
+    // do Traço Mutante escolhido na criação — que já está marcado acima como
+    // "flavor nesta versão, não mecanizado". Sem o traço mecanizado não há como
+    // saber qual perícia leva o +3. A ordem abaixo é uma decisão de design (a mesma
+    // ordem em que o livro lista as perícias), não uma regra extraída do livro —
+    // ajuste quando/se o Traço Mutante virar mecânica real.
+    pericias_iniciais: [
+      { pericia: "atletismo", bonus: 3 },
+      { pericia: "acrobacia", bonus: 2 },
+      { pericia: "percepcao", bonus: 1 },
+    ],
     descricao: "Mutante que despertou poderes latentes de origem desconhecida (Vex).",
     habilidades_nivel1: [
       { nome: "Traço Mutante", descricao: "Escolhe um traço permanente: Físico Aprimorado / Sentidos Predatórios / Biologia Alterada (flavor nesta versão)." },
@@ -201,6 +263,11 @@ export const CLASSES = {
     ataque_assinatura: null,
     bonus_dano_dado: "1d6",
     bonus_dano_tipo: "presa-marcada",
+    pericias_iniciais: [
+      { pericia: "sobrevivencia", bonus: 3 },
+      { pericia: "percepcao",     bonus: 2 },
+      { pericia: "furtividade",   bonus: 1 },
+    ],
     descricao: "Caçador de origem alienígena, rastreia e abate presas com precisão implacável.",
     habilidades_nivel1: [
       { nome: "Biologia Extraterrestre", descricao: "CA=13+DES, não precisa respirar, imune a veneno gasoso." },

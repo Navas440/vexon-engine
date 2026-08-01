@@ -1,11 +1,14 @@
 import { getPlayer, logWorldEvent } from "../db/database.js";
 import { rollDetailed, rollVantagem, rollDesvantagem, calculateModifier } from "./diceEngine.js";
+import { getClasse } from "../classData.js";
 
 // ==========================================
 // MAPA DE PERÍCIAS → ATRIBUTO BASE
 // ==========================================
-// Cada perícia é governada por um atributo.
-// Segue a estrutura do D&D 5e adaptada para Vexon.
+// As 14 perícias oficiais do Vexon, conforme Readme.txt, seção
+// "Lista Oficial de Perícia" — não é a lista de D&D 5e (que tinha
+// perícias inexistentes no livro, como arcana/natureza/religião, e
+// classificava Medicina sob Sabedoria em vez de Inteligência).
 
 export const PERICIAS = {
   // Força
@@ -16,29 +19,21 @@ export const PERICIAS = {
   furtividade:      "destreza",
   prestidigitacao:  "destreza",
 
-  // Resistência (Constituição)
-  resistencia_veneno: "resistencia",
-  concentracao:       "resistencia",
-
   // Inteligência
-  arcana:           "inteligencia",
-  historia:         "inteligencia",
   investigacao:     "inteligencia",
-  natureza:         "inteligencia",
-  religiao:         "inteligencia",
+  medicina:         "inteligencia",
+  tecnologia:       "inteligencia",
+  historia:         "inteligencia",
 
   // Sabedoria
-  adestramento:     "sabedoria",
-  intuicao:         "sabedoria",
-  medicina:         "sabedoria",
   percepcao:        "sabedoria",
+  intuicao:         "sabedoria",
   sobrevivencia:    "sabedoria",
 
   // Carisma
-  atuacao:          "carisma",
-  engano:           "carisma",
   intimidacao:      "carisma",
   persuasao:        "carisma",
+  enganacao:        "carisma",
 };
 
 // Atributos válidos do banco
@@ -108,18 +103,49 @@ export function getBonusProficiencia(nivel = 1) {
  * Aceita tanto nomes de atributo direto ("forca") quanto de perícia ("atletismo").
  * Lança erro se não reconhecer nenhum dos dois.
  */
+function normalizarChave(texto) {
+  return texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
 function resolverAtributo(nomeOuPericia) {
-  const chave = nomeOuPericia.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const chave = normalizarChave(nomeOuPericia);
 
   if (ATRIBUTOS_VALIDOS.has(chave)) return chave;
 
   // Tenta encontrar a perícia pelo nome normalizado
   for (const [pericia, atributo] of Object.entries(PERICIAS)) {
-    const pNorm = pericia.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    if (pNorm === chave) return atributo;
+    if (normalizarChave(pericia) === chave) return atributo;
   }
 
   throw new Error(`Atributo ou perícia desconhecida: "${nomeOuPericia}".`);
+}
+
+/**
+ * Resolve a chave canônica da perícia (ex.: "furtividade") a partir de um
+ * nome livre, ou null se o argumento for um atributo puro (ex.: "forca")
+ * em vez de uma perícia. Usado só para achar o bônus fixo de classe abaixo
+ * — não interfere em resolverAtributo.
+ */
+function resolverNomePericia(nomeOuPericia) {
+  const chave = normalizarChave(nomeOuPericia);
+  if (ATRIBUTOS_VALIDOS.has(chave)) return null;
+  for (const pericia of Object.keys(PERICIAS)) {
+    if (normalizarChave(pericia) === chave) return pericia;
+  }
+  return null;
+}
+
+/**
+ * Bônus fixo de perícia inicial por classe (Readme.txt — "foco tático"),
+ * diferente do bônus de proficiência por nível do D&D. Não escala com
+ * nível, não se acumula com bonus_proficiencia — é um número fixo definido
+ * na criação do personagem, lido de classData.js.
+ */
+function getBonusClassePericia(classeId, periciaKey) {
+  if (!classeId || !periciaKey) return 0;
+  const classe = getClasse(classeId);
+  const entry  = classe?.pericias_iniciais?.find(p => p.pericia === periciaKey);
+  return entry?.bonus ?? 0;
 }
 
 // ==========================================
@@ -152,6 +178,10 @@ export function rollD20Test(jogador_id, atributoOuPericia, dc = DC.medio, opcoes
                    : opcoes.proficiente  ? bonusProf
                    : 0;
 
+  // Bônus fixo de perícia inicial por classe (independente de nível/proficiência)
+  const periciaKey = resolverNomePericia(atributoOuPericia);
+  const bonusClasse = getBonusClassePericia(player.classe, periciaKey);
+
   // Rola d20 com modo (normal / vantagem / desvantagem)
   let dado_bruto, rolagens;
   const modo = opcoes.modo ?? "normal";
@@ -170,7 +200,7 @@ export function rollD20Test(jogador_id, atributoOuPericia, dc = DC.medio, opcoes
     rolagens   = [dado_bruto];
   }
 
-  const total        = dado_bruto + modificador + bonusExtra;
+  const total        = dado_bruto + modificador + bonusExtra + bonusClasse;
   const sucesso      = dado_bruto !== 1 && (dado_bruto === 20 || total >= dc);
   const critico      = dado_bruto === 20;
   const falhaCritica = dado_bruto === 1;
@@ -182,6 +212,7 @@ export function rollD20Test(jogador_id, atributoOuPericia, dc = DC.medio, opcoes
     rolagens,
     modificador,
     bonus_proficiencia: bonusExtra,
+    bonus_classe: bonusClasse,
     total,
     dc,
     sucesso,
