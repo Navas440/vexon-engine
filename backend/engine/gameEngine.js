@@ -23,6 +23,7 @@ import { getFaccaoPorNome, modificarReputacao } from "./factionEngine.js";
 import { getWorldContextForPrompt, deltaWorldState, registrarEventoMundo } from "../ia/worldEngine.js";
 import { TOM_VEXON, REGRA_SELO } from "../loreVexon.js";
 import { descansoCurto, descansoLongo } from "./restEngine.js";
+import { classificarComOllama, resolverManobra } from "../ia/intentClassifier.js";
 import { rollDeathSave, estabilizarAliado } from "./deathEngine.js";
 
 // ==========================================
@@ -346,11 +347,14 @@ Narre o efeito com linguagem mística do universo Vexon.`;
 }
 
 // --- TESTE DE PERÍCIA ---
-async function handleTeste(jogador_id, player, action, sessao_id, systemPrompt) {
+// testeOverride vem do fallback via Ollama (gameEngine.js:processPlayerAction),
+// já resolvido deterministicamente por resolverManobra — a IA nunca escolhe
+// atributo/CD, só ajuda a reconhecer que a ação é um teste.
+async function handleTeste(jogador_id, player, action, sessao_id, systemPrompt, testeOverride = null) {
   // Detecta atributo mencionado na ação ou usa destreza como padrão
   const atributos  = ["forca","destreza","resistencia","inteligencia","sabedoria","carisma"];
-  const atributo   = atributos.find(a => action.toLowerCase().includes(a)) ?? "destreza";
-  const dificuldade = 12;
+  const atributo   = testeOverride?.atributo ?? (atributos.find(a => action.toLowerCase().includes(a)) ?? "destreza");
+  const dificuldade = testeOverride?.dificuldade ?? 12;
 
   const resultado = rollD20Test(jogador_id, atributo, dificuldade);
 
@@ -666,7 +670,7 @@ export async function processPlayerAction(jogador_id, action) {
   const systemPrompt = buildMasterSystemPrompt(player, snapshot);
 
   // Classifica a intenção localmente (sem IA — rápido e gratuito)
-  const { intent, alvo } = classificarIntencao(action);
+  let { intent, alvo } = classificarIntencao(action);
 
   // Despacha para o handler correto
   let resultado;
@@ -689,10 +693,28 @@ export async function processPlayerAction(jogador_id, action) {
         { status: "estavel" }
       );
     } else {
+      // Fallback via Ollama: a regex local não reconheceu a ação ("livre").
+      // Cobre casos ambíguos (ex.: "eu tento escalar o muro") que antes caíam
+      // direto em narração livre sem nenhuma resolução mecânica. Se o Ollama
+      // também não identificar nada, ou falhar/der timeout, segue "livre" normalmente.
+      let testeInfo = null;
+      if (intent === "livre") {
+        try {
+          const viaOllama = await classificarComOllama(action);
+          if (viaOllama.intent !== "livre") {
+            intent = viaOllama.intent;
+            if (viaOllama.alvo) alvo = viaOllama.alvo;
+            if (intent === "teste") testeInfo = resolverManobra(action);
+          }
+        } catch (e) {
+          console.warn(`[GameEngine] Fallback via Ollama indisponível: ${e.message}`);
+        }
+      }
+
       switch (intent) {
         case "combate":     resultado = await handleCombate(jogador_id, player, alvo, action, sessao_id, systemPrompt);     break;
         case "magia":       resultado = await handleMagia(jogador_id, player, action, sessao_id, systemPrompt);             break;
-        case "teste":       resultado = await handleTeste(jogador_id, player, action, sessao_id, systemPrompt);             break;
+        case "teste":       resultado = await handleTeste(jogador_id, player, action, sessao_id, systemPrompt, testeInfo);  break;
         case "dialogo":     resultado = await handleDialogo(player, alvo, action, sessao_id, systemPrompt);                 break;
         case "comercio":    resultado = await handleComercio(jogador_id, player, action);                                   break;
         case "viajar":      resultado = await handleViagem(jogador_id, alvo);                                               break;
