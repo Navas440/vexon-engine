@@ -180,6 +180,11 @@ db.exec(`
     aparencia_fisica TEXT DEFAULT '',
     personalidade   TEXT DEFAULT '',
     background      TEXT DEFAULT '',
+    status          TEXT DEFAULT 'ativo',
+    dados_vida_gastos    INTEGER DEFAULT 0,
+    ultimo_descanso_longo INTEGER DEFAULT NULL,
+    death_save_sucessos  INTEGER DEFAULT 0,
+    death_save_falhas    INTEGER DEFAULT 0,
     deslocamento    TEXT DEFAULT '9m',
     nivel           INTEGER DEFAULT 1,
     xp              INTEGER DEFAULT 0,
@@ -338,6 +343,12 @@ addColumnIfMissing('jogadores', 'genero', 'TEXT DEFAULT NULL');
 addColumnIfMissing('jogadores', 'aparencia_fisica', "TEXT DEFAULT ''");
 addColumnIfMissing('jogadores', 'personalidade', "TEXT DEFAULT ''");
 addColumnIfMissing('jogadores', 'background', "TEXT DEFAULT ''");
+// status da ficha: 'ativo' | 'inconsciente' (rolando teste contra a morte) | 'estavel' (3 sucessos, parou de rolar) | 'morto'
+addColumnIfMissing('jogadores', 'status', "TEXT DEFAULT 'ativo'");
+addColumnIfMissing('jogadores', 'dados_vida_gastos', 'INTEGER DEFAULT 0');
+addColumnIfMissing('jogadores', 'ultimo_descanso_longo', 'INTEGER DEFAULT NULL');
+addColumnIfMissing('jogadores', 'death_save_sucessos', 'INTEGER DEFAULT 0');
+addColumnIfMissing('jogadores', 'death_save_falhas', 'INTEGER DEFAULT 0');
 
 // ==========================================
 // COMPÊNDIO — NPCs
@@ -490,6 +501,59 @@ export function updatePlayerHP(id, novoHp) {
 export function addPlayerGold(id, gold) {
   return db.prepare('UPDATE jogadores SET ouro = MAX(0, ouro + ?), atualizado_em = CURRENT_TIMESTAMP WHERE id = ?')
     .run(gold, id);
+}
+
+/**
+ * Status da ficha do jogador: 'ativo' | 'inconsciente' | 'estavel' | 'morto'.
+ * Ver Readme.txt, seção "Caindo a 0 Pontos de Vida".
+ */
+export function updatePlayerStatus(id, status) {
+  return db.prepare('UPDATE jogadores SET status = ?, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?')
+    .run(status, id);
+}
+
+/**
+ * Registra o gasto de N Dados de Vida num Descanso Curto (soma ao total já gasto).
+ */
+export function gastarDadosDeVida(id, quantidade) {
+  return db.prepare('UPDATE jogadores SET dados_vida_gastos = dados_vida_gastos + ?, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?')
+    .run(quantidade, id);
+}
+
+/**
+ * Zera os Dados de Vida gastos — chamado ao final de um Descanso Longo bem-sucedido.
+ */
+export function resetDadosDeVida(id) {
+  return db.prepare('UPDATE jogadores SET dados_vida_gastos = 0, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?')
+    .run(id);
+}
+
+/**
+ * Grava o timestamp (epoch ms) do último Descanso Longo bem-sucedido — usado para
+ * bloquear um segundo Descanso Longo antes de 24h reais terem se passado.
+ */
+export function registrarDescansoLongo(id, timestampMs) {
+  return db.prepare('UPDATE jogadores SET ultimo_descanso_longo = ?, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?')
+    .run(timestampMs, id);
+}
+
+/**
+ * Grava o resultado de um teste contra a morte: contagem de sucessos/falhas,
+ * o novo status da ficha e, opcionalmente, um novo HP (usado no 20 natural).
+ */
+export function registrarDeathSave(id, { sucessos, falhas, status, hp = null }) {
+  if (hp !== null) {
+    return db.prepare(`
+      UPDATE jogadores
+      SET death_save_sucessos = ?, death_save_falhas = ?, status = ?, hp_atual = ?, atualizado_em = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(sucessos, falhas, status, hp, id);
+  }
+  return db.prepare(`
+    UPDATE jogadores
+    SET death_save_sucessos = ?, death_save_falhas = ?, status = ?, atualizado_em = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(sucessos, falhas, status, id);
 }
 
 /**
@@ -713,7 +777,12 @@ export function updateActiveEntityHP(id_ativo, novo_hp, statusOverride = null) {
   if (!entidade) return null;
 
   const hpFinal  = Math.max(0, Math.min(novo_hp, entidade.hp_maximo));
-  const novoStatus = hpFinal <= 0 ? 'morto' : (statusOverride ?? entidade.status);
+  // A 0 HP o padrão é morrer — mas um chamador pode pedir explicitamente 'inconsciente'
+  // (ex.: estabilizar um aliado caído) em vez de matar a entidade. Sem esse override,
+  // o comportamento é idêntico ao de sempre.
+  const novoStatus = hpFinal <= 0
+    ? (statusOverride === 'inconsciente' ? 'inconsciente' : 'morto')
+    : (statusOverride ?? entidade.status);
 
   db.prepare(`
     UPDATE entidades_vivas

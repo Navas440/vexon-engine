@@ -5,6 +5,7 @@ import db, {
   getActiveEnemies,
   consumeItem,
   updatePlayerHP,
+  updatePlayerStatus,
   insertMonster,
   spawnEntity,
   logWorldEvent,
@@ -21,6 +22,8 @@ import { iniciarViagem, getLocaisConectados, getLocaisAtivos, getPosicaoJogador 
 import { getFaccaoPorNome, modificarReputacao } from "./factionEngine.js";
 import { getWorldContextForPrompt, deltaWorldState, registrarEventoMundo } from "../ia/worldEngine.js";
 import { TOM_VEXON, REGRA_SELO } from "../loreVexon.js";
+import { descansoCurto, descansoLongo } from "./restEngine.js";
+import { rollDeathSave, estabilizarAliado } from "./deathEngine.js";
 
 // ==========================================
 // CONFIGURAÇÃO DO OLLAMA
@@ -98,6 +101,9 @@ const INTENT_KEYWORDS = {
   inventario: /\b(usar|uso|beber|bebi|equip|inventário|mochila|bolsa|poção|item)\w*/i,
   dialogo:    /\b(fal|diz|digo|conversar|perguntar|pergunto|negociar|negocio|cumprimentar)\w*/i,
   explorar:   /\b(examinar|examino|olhar|olho|procurar|procuro|investigar|investigo|abrir|abro|entrar|entro|ir para|mover)\w*/i,
+  // estabilizar precisa vir antes de descansar/dialogo, cujos regexes ("curar"/"falar")
+  // também poderiam capturar frases como "estabilizar e falar com o aliado".
+  estabilizar: /\b(estabiliz)\w*/i,
   descansar:  /\b(descansar|descanso|dormir|durmo|acampar|acampo|curar|curo)\w*/i,
 };
 
@@ -112,7 +118,11 @@ function classificarIntencao(action) {
   for (const [intent, regex] of Object.entries(INTENT_KEYWORDS)) {
     if (regex.test(texto)) {
       // Tenta extrair o alvo: última palavra substantiva após verbos de ação
-      const alvoMatch = texto.match(/(?:em|no|na|o|a|contra|para)\s+([\w\s]+?)(?:\s+com|\s+usando|$)/i);
+      // \b antes da preposição evita casar a letra final de outra palavra (ex.: o "o"
+      // de "tento"); \b depois de "com"/"usando" evita cortar nomes que começam com
+      // essas letras (ex.: "estabilizar o Companheiro" não pode truncar achando que
+      // "com..." é a preposição "com").
+      const alvoMatch = texto.match(/\b(?:em|no|na|o|a|contra|para)\b\s+([\w\s]+?)(?:\s+com\b|\s+usando\b|$)/i);
       const alvo      = alvoMatch ? alvoMatch[1].trim() : null;
       return { intent, alvo };
     }
@@ -298,6 +308,8 @@ Narre o resultado sem citar números.`;
         const promptReacao = `${alvo.nome_unico} decidiu: ${turnoInimigo.decisao}. Pensamento interno: "${turnoInimigo.pensamento}".
 ${mech.tipo === "ataque" ? `Atacou o jogador: ${mech.acertou ? `acertou, causando ${mech.dano_causado} de dano.` : "errou."}` : ""}
 ${mech.habilidade_usada ? `${alvo.nome_unico} usou sua habilidade de assinatura "${mech.habilidade_usada}" (dano ${mech.tipo_dano}).` : ""}
+${mech.caiu_inconsciente ? `O jogador caiu a 0 HP e ficou inconsciente, sangrando — está morrendo.` : ""}
+${mech.teste_morte?.morreu ? `O golpe foi tão grave que o jogador não resistiu.` : ""}
 ${mech.tipo === "fuga" ? "A entidade fugiu usando o Sistema Nemesis." : ""}
 ${mech.tipo === "dialogo" ? "A entidade pediu para dialogar." : ""}
 Narre a reação em 1 parágrafo curto.`;
@@ -388,10 +400,16 @@ async function handleInventario(jogador_id, player, alvoNome, sessao_id) {
     const cura   = rollDice("1d8") + 4; // 1d8+4 de cura
     const novoHp = Math.min(player.hp_maximo, player.hp_atual + cura);
     updatePlayerHP(jogador_id, novoHp);
+
+    // Cura acima de 0 HP tira o personagem de inconsciente/estável (Readme.txt:
+    // ganhar HP enquanto caído interrompe o teste contra a morte).
+    const estavaCaido = player.status === "inconsciente" || player.status === "estavel";
+    if (estavaCaido && novoHp > 0) updatePlayerStatus(jogador_id, "ativo");
+
     logWorldEvent("item", `${player.nome} usou ${itemUsado.nome} e recuperou ${cura} HP.`, [jogador_id]);
     return resposta(
-      `Você usa **${itemUsado.nome}**. O líquido percorre suas veias e você recupera **${cura} HP** (${novoHp}/${player.hp_maximo}).`,
-      { item: itemUsado.nome, cura, hp_novo: novoHp }
+      `Você usa **${itemUsado.nome}**. O líquido percorre suas veias${estavaCaido ? " e você recobra a consciência" : ""}. Recupera **${cura} HP** (${novoHp}/${player.hp_maximo}).`,
+      { item: itemUsado.nome, cura, hp_novo: novoHp, reviveu: estavaCaido && novoHp > 0 }
     );
   }
 
@@ -494,19 +512,69 @@ Se houver algo interessante (item, pista, perigo oculto), mencione sutilmente.`;
 }
 
 // --- DESCANSO ---
-async function handleDescanso(jogador_id, player, sessao_id, systemPrompt) {
-  const inimigos  = getActiveEnemies().filter(e => e.status !== "morto");
-  if (inimigos.length > 0) {
-    return resposta("Você não pode descansar com inimigos por perto!", { erro: "inimigos_proximos" });
+// Distingue curto/longo pelo texto da ação (Readme.txt "Regras de Descanso").
+// "acampar"/"dormir"/"noite"/"longo" indicam Descanso Longo; qualquer outra
+// menção a descansar/curar, sem essas palavras, é tratada como Descanso Curto.
+async function handleDescanso(jogador_id, player, action, sessao_id, systemPrompt) {
+  const textoLower = action.toLowerCase();
+  const ehLongo    = /\b(longo|noite|acampar|acampo|dormir|durmo)\w*/i.test(textoLower);
+
+  try {
+    if (ehLongo) {
+      const r = descansoLongo(jogador_id);
+      const prompt = `${player.nome} fez um Descanso Longo em segurança e recuperou todo o HP (${r.hp_depois}/${r.hp_maximo}), além de todos os Dados de Vida. Narre o descanso brevemente.`;
+      const narrativa = await narrar(sessao_id, systemPrompt, prompt);
+      return resposta(narrativa, { descanso: r });
+    }
+
+    const qtdMatch = textoLower.match(/(\d+)\s*dados?/i);
+    const quantidade = qtdMatch ? Number(qtdMatch[1]) : 1;
+
+    const r = descansoCurto(jogador_id, quantidade);
+    const prompt = `${player.nome} fez um Descanso Curto, gastou ${r.dados_gastos} Dado(s) de Vida e recuperou ${r.cura_total} HP (${r.hp_depois}/${r.hp_maximo}). Restam ${r.dados_restantes} Dados de Vida disponíveis. Narre o descanso brevemente.`;
+    const narrativa = await narrar(sessao_id, systemPrompt, prompt);
+    return resposta(narrativa, { descanso: r });
+  } catch (e) {
+    return resposta(e.message, { erro: e.message });
+  }
+}
+
+// --- TESTE CONTRA A MORTE ---
+// Roda automaticamente a cada ação enquanto o jogador está inconsciente (0 HP) —
+// substitui o processamento normal da ação, conforme "no início de cada um dos
+// seus turnos" (Readme.txt, "Caindo a 0 Pontos de Vida").
+async function handleTesteMorte(jogador_id, player, sessao_id, systemPrompt) {
+  const r = rollDeathSave(jogador_id);
+
+  let desfecho;
+  if (r.resultado === "recuperou_consciencia") {
+    desfecho = `Rolou um 20 natural! ${player.nome} recupera 1 HP imediatamente e volta à consciência.`;
+  } else if (r.resultado === "morreu") {
+    desfecho = `${player.nome} acumulou 3 falhas e morreu.`;
+  } else if (r.resultado === "estabilizou") {
+    desfecho = `${player.nome} acumulou 3 sucessos e estabilizou — continua inconsciente, mas parou de morrer.`;
+  } else if (r.resultado === "sucesso") {
+    desfecho = `Sucesso no teste contra a morte (${r.sucessos}/3 sucessos, ${r.falhas}/3 falhas).`;
+  } else {
+    desfecho = `Falha no teste contra a morte${r.natural1 ? " (1 natural — conta como duas falhas)" : ""} (${r.sucessos}/3 sucessos, ${r.falhas}/3 falhas).`;
   }
 
-  const cura   = Math.floor(player.hp_maximo * 0.5); // Descanso cura 50% do HP máximo
-  const novoHp = Math.min(player.hp_maximo, player.hp_atual + cura);
-  updatePlayerHP(jogador_id, novoHp);
-
-  const prompt = `${player.nome} descansou em segurança e recuperou ${cura} HP (${novoHp}/${player.hp_maximo}). Narre o descanso brevemente.`;
+  const prompt = `${player.nome} está inconsciente a 0 HP e faz um teste contra a morte. ${desfecho} Narre a cena sem citar números ou mecânicas.`;
   const narrativa = await narrar(sessao_id, systemPrompt, prompt);
-  return resposta(narrativa, { cura_descanso: cura, hp_novo: novoHp });
+  return resposta(narrativa, { teste_morte: r });
+}
+
+// --- ESTABILIZAR ALIADO ---
+async function handleEstabilizar(jogador_id, player, alvo, action, sessao_id, systemPrompt) {
+  try {
+    const r = estabilizarAliado(jogador_id, alvo);
+    const prompt = `${player.nome} tenta estabilizar ${r.alvo} com um teste de Inteligência (Medicina) CD 10. ` +
+      `${r.estabilizado ? `Conseguiu — ${r.alvo} volta com 1 HP.` : `Não conseguiu.`} Narre a cena sem citar números ou mecânicas.`;
+    const narrativa = await narrar(sessao_id, systemPrompt, prompt);
+    return resposta(narrativa, { estabilizar: r });
+  } catch (e) {
+    return resposta(e.message, { erro: e.message });
+  }
 }
 
 // --- AÇÃO LIVRE ---
@@ -603,17 +671,37 @@ export async function processPlayerAction(jogador_id, action) {
   // Despacha para o handler correto
   let resultado;
   try {
-    switch (intent) {
-      case "combate":   resultado = await handleCombate(jogador_id, player, alvo, action, sessao_id, systemPrompt);   break;
-      case "magia":     resultado = await handleMagia(jogador_id, player, action, sessao_id, systemPrompt);           break;
-      case "teste":     resultado = await handleTeste(jogador_id, player, action, sessao_id, systemPrompt);           break;
-      case "dialogo":   resultado = await handleDialogo(player, alvo, action, sessao_id, systemPrompt);               break;
-      case "comercio":  resultado = await handleComercio(jogador_id, player, action);                                 break;
-      case "viajar":    resultado = await handleViagem(jogador_id, alvo);                                             break;
-      case "inventario":resultado = await handleInventario(jogador_id, player, alvo, sessao_id);                      break;
-      case "explorar":  resultado = await handleExplorar(player, action, sessao_id, systemPrompt);                    break;
-      case "descansar": resultado = await handleDescanso(jogador_id, player, sessao_id, systemPrompt);                break;
-      default:          resultado = await handleLivre(player, action, sessao_id, systemPrompt);
+    // Exceção: mesmo inconsciente/estável, usar um item (ex.: poção de cura) ainda
+    // passa — é o único jeito de sair desse estado sem outro personagem por perto.
+    const podeUsarItemMesmoCaido = intent === "inventario";
+
+    if (player.status === "morto") {
+      resultado = resposta(`${player.nome} está morto. A história dele chegou ao fim.`, { status: "morto" });
+    } else if (player.status === "inconsciente" && !podeUsarItemMesmoCaido) {
+      // Enquanto inconsciente, todo turno é um teste contra a morte — a ação
+      // digitada é ignorada (o personagem não pode agir).
+      resultado = await handleTesteMorte(jogador_id, player, sessao_id, systemPrompt);
+    } else if (player.status === "estavel" && !podeUsarItemMesmoCaido) {
+      // Estabilizado: parou de rolar contra a morte, mas continua inconsciente
+      // e incapaz de agir — só volta com cura externa (poção, magia, etc.).
+      resultado = resposta(
+        `${player.nome} está inconsciente, mas estável — respira fracamente. Precisa de cura para acordar.`,
+        { status: "estavel" }
+      );
+    } else {
+      switch (intent) {
+        case "combate":     resultado = await handleCombate(jogador_id, player, alvo, action, sessao_id, systemPrompt);     break;
+        case "magia":       resultado = await handleMagia(jogador_id, player, action, sessao_id, systemPrompt);             break;
+        case "teste":       resultado = await handleTeste(jogador_id, player, action, sessao_id, systemPrompt);             break;
+        case "dialogo":     resultado = await handleDialogo(player, alvo, action, sessao_id, systemPrompt);                 break;
+        case "comercio":    resultado = await handleComercio(jogador_id, player, action);                                   break;
+        case "viajar":      resultado = await handleViagem(jogador_id, alvo);                                               break;
+        case "inventario":  resultado = await handleInventario(jogador_id, player, alvo, sessao_id);                        break;
+        case "explorar":    resultado = await handleExplorar(player, action, sessao_id, systemPrompt);                      break;
+        case "estabilizar": resultado = await handleEstabilizar(jogador_id, player, alvo, action, sessao_id, systemPrompt); break;
+        case "descansar":   resultado = await handleDescanso(jogador_id, player, action, sessao_id, systemPrompt);          break;
+        default:            resultado = await handleLivre(player, action, sessao_id, systemPrompt);
+      }
     }
   } catch (err) {
     console.error(`[GameEngine] Erro no handler "${intent}":`, err.message);

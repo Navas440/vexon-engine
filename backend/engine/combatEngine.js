@@ -7,9 +7,11 @@ import {
   addPlayerGold,
   awardPlayerXP,
   logWorldEvent,
+  registrarDeathSave,
 } from "../db/database.js";
 import { calculateModifier } from "./skillEngine.js";
 import { getClasse } from "../classData.js";
+import { aplicarDanoEm0HP } from "./deathEngine.js";
 
 // ==========================================
 // CONSTANTES DE COMBATE
@@ -203,7 +205,7 @@ export function entityAttacksPlayer(entidade_ativa_id, jogador_id) {
   if (!entidade) throw new Error(`Entidade ${entidade_ativa_id} não encontrada.`);
   if (!player)   throw new Error(`Jogador ${jogador_id} não encontrado.`);
   if (entidade.status === 'morto') throw new Error(`${entidade.nome_unico} está morto e não pode atacar.`);
-  if (player.hp_atual <= 0) throw new Error(`${player.nome} já está inconsciente.`);
+  if (player.status === 'morto') throw new Error(`${player.nome} já está morto.`);
 
   // ---- PERFIL DE CLASSE (opcional, definido pelo mestre na criação) ----
   // classeInfo é null para entidades sem classe (o padrão até hoje) — nesse
@@ -250,12 +252,24 @@ export function entityAttacksPlayer(entidade_ativa_id, jogador_id) {
   const danoFinal  = Math.max(1, dadoDano + bonusDano);
 
   // ---- APLICA DANO AO JOGADOR ----
+  const jaEstavaInconsciente = player.status === "inconsciente";
+
   const novoHp    = Math.max(0, player.hp_atual - danoFinal);
   updatePlayerHP(jogador_id, novoHp);
 
+  // ---- TESTE CONTRA A MORTE (Readme.txt "Caindo a 0 Pontos de Vida") ----
+  let caiuInconsciente = false;
+  let testeMorte        = null;
+  if (jaEstavaInconsciente) {
+    testeMorte = aplicarDanoEm0HP(jogador_id, critico);
+  } else if (novoHp <= 0) {
+    registrarDeathSave(jogador_id, { sucessos: 0, falhas: 0, status: "inconsciente" });
+    caiuInconsciente = true;
+  }
+
   const jogadorInconsciente = novoHp <= 0;
 
-  if (jogadorInconsciente) {
+  if (caiuInconsciente) {
     logWorldEvent(
       'batalha',
       `${player.nome} foi derrubado por ${entidade.nome_unico}.`,
@@ -283,6 +297,8 @@ export function entityAttacksPlayer(entidade_ativa_id, jogador_id) {
       hp_restante:       novoHp,
       inconsciente:      jogadorInconsciente,
     },
+    caiu_inconsciente: caiuInconsciente,
+    teste_morte:        testeMorte,
   };
 }
 

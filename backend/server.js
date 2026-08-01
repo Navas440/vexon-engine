@@ -15,6 +15,8 @@ import { setupEconomyRoutes, inicializarLojas, iniciarEconomyTicker }        fro
 import { setupCraftRoutes, inicializarReceitas }                            from "./engine/craftEngine.js";
 import { setupLocationRoutes, inicializarLocais, iniciarLocationTicker, setLocalJogador } from "./engine/locationEngine.js";
 import { setupWorldRoutes, iniciarTickAutomatico } from "./ia/worldEngine.js";
+import { setupRestRoutes }                          from "./engine/restEngine.js";
+import { setupDeathRoutes }                          from "./engine/deathEngine.js";
 import { CLASSES, CLASSE_IDS, calcularCaClasse } from "./classData.js";
 import { calculateModifier } from "./engine/diceEngine.js";
 import { ITENS_INICIAIS, LIMITE_ITENS_INICIAIS, getItemInicial } from "./starterItems.js";
@@ -460,6 +462,8 @@ async function iniciar() {
   setupCraftRoutes(app);
   setupLocationRoutes(app);
   setupWorldRoutes(app);
+  setupRestRoutes(app);
+  setupDeathRoutes(app);
 
   iniciarFactionTicker();
   iniciarEconomyTicker();

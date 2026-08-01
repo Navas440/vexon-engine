@@ -5,11 +5,13 @@ import {
   applyNemesisEvolution,
   updateActiveEntityHP,
   logWorldEvent,
+  registrarDeathSave,
 } from "../db/database.js";
 import { rollDice, rollDetailed, calculateModifier } from "./diceEngine.js";
 import { getEmotionalContext, updateEmotionalState, addRichMemory, criarMemoriaRica } from "../ia/npcsoulEngine.js";
 import { getClasse } from "../classData.js";
 import { TOM_VEXON } from "../loreVexon.js";
+import { aplicarDanoEm0HP } from "./deathEngine.js";
 
 // ==========================================
 // CONFIGURAÇÃO DO OLLAMA
@@ -164,6 +166,8 @@ function executarAtaque(entidade, player, jogador_id) {
   let hpJogadorRestante = player.hp_atual;
   let tipoDano          = null;
   let habilidadeUsada   = null;
+  let caiuInconsciente  = false;
+  let testeMorte        = null;
 
   if (acertou) {
     const acoes      = Array.isArray(entidade.acoes) ? entidade.acoes : [];
@@ -176,8 +180,23 @@ function executarAtaque(entidade, player, jogador_id) {
     const bonusDadoClasse = classeInfo?.bonus_dano_dado ? rollDice(classeInfo.bonus_dano_dado) : 0;
 
     dano              = Math.max(1, dadoDano + modAtaque + (entidade.bonus_dano || 0) + bonusDadoClasse);
+
+    // ---- TESTE CONTRA A MORTE (Readme.txt "Caindo a 0 Pontos de Vida") ----
+    // player.status reflete o estado ANTES deste golpe (foi lido no início do turno).
+    const jaEstavaInconsciente = player.status === "inconsciente";
+
     hpJogadorRestante = Math.max(0, player.hp_atual - dano);
     updatePlayerHP(jogador_id, hpJogadorRestante);
+
+    if (jaEstavaInconsciente) {
+      // Já estava a 0 HP: sofrer dano de novo conta como falha automática
+      // (2 falhas se o golpe foi crítico) — não rola dado nenhum.
+      testeMorte = aplicarDanoEm0HP(jogador_id, critico);
+    } else if (hpJogadorRestante <= 0) {
+      // Caiu a 0 HP agora pela primeira vez — fica inconsciente, zera a contagem.
+      registrarDeathSave(jogador_id, { sucessos: 0, falhas: 0, status: "inconsciente" });
+      caiuInconsciente = true;
+    }
 
     tipoDano        = ataqueAssinatura?.tipo_dano ?? classeInfo?.bonus_dano_tipo ?? "físico";
     habilidadeUsada = ataqueAssinatura?.nome_habilidade ?? null;
@@ -207,6 +226,8 @@ function executarAtaque(entidade, player, jogador_id) {
     habilidade_usada:    habilidadeUsada,
     hp_jogador_restante: hpJogadorRestante,
     jogador_inconsciente: hpJogadorRestante <= 0,
+    caiu_inconsciente:   caiuInconsciente,
+    teste_morte:         testeMorte,
   };
 }
 
