@@ -155,6 +155,26 @@ export function rollDesvantagem() {
 }
 
 /**
+ * Rola um d20 respeitando o modo (normal/vantagem/desvantagem) — mesma
+ * lógica de 3 vias que rollD20Test (skillEngine.js) já usava inline,
+ * fatorada aqui para reuso em combatEngine.js/entityTurn.js.
+ * @param {'normal'|'vantagem'|'desvantagem'} modo
+ * @returns {{ resultado: number, rolagens: number[] }}
+ */
+export function rollD20ComModo(modo = 'normal') {
+  if (modo === 'vantagem') {
+    const r = rollVantagem();
+    return { resultado: r.resultado, rolagens: r.rolagens };
+  }
+  if (modo === 'desvantagem') {
+    const r = rollDesvantagem();
+    return { resultado: r.resultado, rolagens: r.rolagens };
+  }
+  const r = rollDetailed('1d20');
+  return { resultado: r.total, rolagens: [r.total] };
+}
+
+/**
  * Rola um teste de resistência ou salvaguarda.
  * @param {number} modificador  - Modificador do atributo relevante
  * @param {number} cd           - Classe de dificuldade (CD / DC)

@@ -7,11 +7,12 @@ import {
   logWorldEvent,
   registrarDeathSave,
 } from "../db/database.js";
-import { rollDice, rollDetailed, calculateModifier } from "./diceEngine.js";
+import { rollDice, rollDetailed, rollD20ComModo, calculateModifier } from "./diceEngine.js";
 import { getEmotionalContext, updateEmotionalState, addRichMemory, criarMemoriaRica } from "../ia/npcsoulEngine.js";
 import { getClasse } from "../classData.js";
 import { TOM_VEXON } from "../loreVexon.js";
 import { aplicarDanoEm0HP } from "./deathEngine.js";
+import { resolverModoAtaque, critAutomaticoPorParalisia, decrementarCondicoes } from "./conditionEngine.js";
 
 // ==========================================
 // CONFIGURAÇÃO DO OLLAMA
@@ -155,12 +156,16 @@ function executarAtaque(entidade, player, jogador_id) {
   const modAtaque = ataqueAssinatura
     ? calculateModifier(entidade[ataqueAssinatura.atributo] ?? 10)
     : calculateModifier(entidade.forca || 10);
-  const d20          = rollDetailed("1d20");
-  const dadoBruto    = d20.total;
-  const caJogador    = player.ca || 10;
-  const critico      = dadoBruto === 20;
-  const falhaCritica = dadoBruto === 1;
-  const acertou      = !falhaCritica && (critico || (dadoBruto + modAtaque) >= caJogador);
+  // "ambos" (ex.: Ilusionista, Desperto Vex) volta para corpo-a-corpo no resolver —
+  // heurística documentada, não existe sistema de posição real no motor.
+  const alcanceCorpoACorpo = ataqueAssinatura ? ataqueAssinatura.alcance !== 'distancia' : true;
+  const modo          = resolverModoAtaque({ entidade_id: entidade.id }, { jogador_id }, { alcanceCorpoACorpo });
+  const { resultado: dadoBruto } = rollD20ComModo(modo);
+  const caJogador      = player.ca || 10;
+  const naturalCritico = dadoBruto === 20;
+  const falhaCritica   = dadoBruto === 1;
+  const acertou        = !falhaCritica && (naturalCritico || (dadoBruto + modAtaque) >= caJogador);
+  const critico         = acertou && (naturalCritico || critAutomaticoPorParalisia({ jogador_id }, { alcanceCorpoACorpo }));
 
   let dano              = 0;
   let hpJogadorRestante = player.hp_atual;
@@ -355,6 +360,8 @@ export async function processEntityTurn(entidade_ativa_id, jogador_id) {
   const statusBloqueantes = ["morto", "fugiu", "rendido", "dialogando", "inconsciente"];
   if (!entidade || statusBloqueantes.includes(entidade.status)) return null;
   if (!player) throw new Error(`Jogador ${jogador_id} não encontrado.`);
+
+  decrementarCondicoes({ entidade_id: entidade_ativa_id });
 
   // ---- DECISÃO DA IA ----
   let iaDecision   = DECISAO_FALLBACK;

@@ -12,6 +12,8 @@ import {
 import { calculateModifier } from "./skillEngine.js";
 import { getClasse } from "../classData.js";
 import { aplicarDanoEm0HP } from "./deathEngine.js";
+import { rollD20ComModo } from "./diceEngine.js";
+import { resolverModoAtaque, critAutomaticoPorParalisia, temCondicao } from "./conditionEngine.js";
 
 // ==========================================
 // CONSTANTES DE COMBATE
@@ -53,18 +55,6 @@ export function rollDiceString(diceString = DANO_DESARMADO) {
 }
 
 /**
- * Rola 1d20 e retorna { resultado, critico, falhaCritica }.
- */
-function rollD20() {
-  const resultado   = Math.floor(Math.random() * 20) + 1;
-  return {
-    resultado,
-    critico:      resultado === 20,
-    falhaCritica: resultado === 1,
-  };
-}
-
-/**
  * Determina qual modificador de atributo usar baseado no tipo de arma.
  */
 function getModAtaque(player, arma) {
@@ -96,7 +86,7 @@ function calcularRecompensas(alvo) {
  * Processa um ataque do jogador contra uma entidade ativa.
  * Retorna um objeto detalhado com o resultado do ataque.
  */
-export function calculateAttack(jogador_id, entidade_ativa_id) {
+export function calculateAttack(jogador_id, entidade_ativa_id, opcoes = {}) {
   const player = getPlayer(jogador_id);
   const alvo   = getActiveEntity(entidade_ativa_id);
   const arma   = getEquippedWeapon(jogador_id);
@@ -109,16 +99,28 @@ export function calculateAttack(jogador_id, entidade_ativa_id) {
   // classeInfo é null para jogadores sem classe definida (legado) — nesse caso
   // todo o bloco abaixo colapsa exatamente no comportamento original (arma/desarmado).
   const classeInfo       = player.classe ? getClasse(player.classe) : null;
-  const ataqueAssinatura = classeInfo?.ataque_assinatura ?? null;
+  let ataqueAssinatura   = classeInfo?.ataque_assinatura ?? null;
+  // Silenciado bloqueia magia com componente verbal — o ataque de assinatura
+  // (todos mágicos) fica indisponível, cai para arma/desarmado.
+  if (ataqueAssinatura && temCondicao({ jogador_id }, 'silenciado')) {
+    ataqueAssinatura = null;
+  }
 
   // ---- ACERTO ----
+  const alcanceCorpoACorpo = ataqueAssinatura
+    ? ataqueAssinatura.alcance !== 'distancia'
+    : !(arma?.tipo === 'arma_distancia');
+  const modo = resolverModoAtaque({ jogador_id }, { entidade_id: entidade_ativa_id }, { alcanceCorpoACorpo });
   const modAtaque = ataqueAssinatura
     ? calculateModifier(player[ataqueAssinatura.atributo] ?? 10)
     : getModAtaque(player, arma);
-  const { resultado: dadoBruto, critico, falhaCritica } = rollD20();
-  const totalAcerto   = dadoBruto + modAtaque;
-  const caAlvo        = (alvo.ca || 10) + (alvo.bonus_ca || 0);
-  const acertou       = !falhaCritica && (critico || totalAcerto >= caAlvo);
+  const { resultado: dadoBruto } = rollD20ComModo(modo);
+  const naturalCritico = dadoBruto === 20;
+  const falhaCritica   = dadoBruto === 1;
+  const totalAcerto    = dadoBruto + modAtaque;
+  const caAlvo         = (alvo.ca || 10) + (alvo.bonus_ca || 0);
+  const acertou        = !falhaCritica && (naturalCritico || totalAcerto >= caAlvo);
+  const critico        = acertou && (naturalCritico || critAutomaticoPorParalisia({ entidade_id: entidade_ativa_id }, { alcanceCorpoACorpo }));
 
   if (!acertou) {
     return {
@@ -137,6 +139,13 @@ export function calculateAttack(jogador_id, entidade_ativa_id) {
     ? ataqueAssinatura.dado_dano
     : (arma?.dano_ou_efeito || DANO_DESARMADO);
   let dadoDano      = rollDiceString(stringDano);
+
+  // Sobrecarga/Foco de Intensidade (Arconte/Anomalia Bioenergética, 1 PE/PS):
+  // rerrola o dado de dano do ataque de assinatura se deu 1 ou 2. Readme.txt
+  // descreve isso para dados únicos (1d10) — rerrola uma vez, sem exceção.
+  if (opcoes.rerrolarDanoBaixo && ataqueAssinatura && dadoDano <= 2) {
+    dadoDano = rollDiceString(stringDano);
+  }
 
   // Crítico: rola os dados de dano uma segunda vez (não dobra o total — regra D&D 5e)
   if (critico) dadoDano += rollDiceString(stringDano);
@@ -214,13 +223,18 @@ export function entityAttacksPlayer(entidade_ativa_id, jogador_id) {
   const ataqueAssinatura = classeInfo?.ataque_assinatura ?? null;
 
   // ---- ACERTO ----
+  const alcanceCorpoACorpo = ataqueAssinatura ? ataqueAssinatura.alcance !== 'distancia' : true;
+  const modo = resolverModoAtaque({ entidade_id: entidade_ativa_id }, { jogador_id }, { alcanceCorpoACorpo });
   const modForca    = ataqueAssinatura
     ? calculateModifier(entidade[ataqueAssinatura.atributo] ?? 10)
     : calculateModifier(entidade.forca || 10);
-  const { resultado: dadoBruto, critico, falhaCritica } = rollD20();
+  const { resultado: dadoBruto } = rollD20ComModo(modo);
+  const naturalCritico = dadoBruto === 20;
+  const falhaCritica   = dadoBruto === 1;
   const totalAcerto = dadoBruto + modForca;
   const caJogador   = player.ca || 10;
-  const acertou     = !falhaCritica && (critico || totalAcerto >= caJogador);
+  const acertou     = !falhaCritica && (naturalCritico || totalAcerto >= caJogador);
+  const critico     = acertou && (naturalCritico || critAutomaticoPorParalisia({ jogador_id }, { alcanceCorpoACorpo }));
 
   if (!acertou) {
     return {

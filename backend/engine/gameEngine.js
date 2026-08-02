@@ -25,6 +25,8 @@ import { TOM_VEXON, REGRA_SELO } from "../loreVexon.js";
 import { descansoCurto, descansoLongo } from "./restEngine.js";
 import { classificarComOllama, resolverManobra } from "../ia/intentClassifier.js";
 import { rollDeathSave, estabilizarAliado } from "./deathEngine.js";
+import { resolverModoTeste, falhaAutomaticaVisual, temCondicao, decrementarCondicoes, adicionarCondicao } from "./conditionEngine.js";
+import { gastarRecurso } from "./resourceEngine.js";
 
 // ==========================================
 // CONFIGURAÇÃO DO OLLAMA
@@ -225,6 +227,22 @@ function aplicarTagSelo(texto) {
 // HANDLERS DE INTENÇÃO
 // ==========================================
 
+// Detecta se a ação menciona uma habilidade de recurso de classe (Tier 1 —
+// ver docs/plano-pontos-recurso.md). Só reconhece a classe correta; outra
+// classe dizendo "sobrecarga" por acaso não aciona nada (getRecursoTier1
+// abaixo já filtra por player.classe antes de checar a palavra-chave).
+const RECURSOS_TIER1 = {
+  arconte: { padrao: /\b(sobrecarga|ponto de ess[êe]ncia)\b/i, tipo: "rerolar_dano" },
+  anomalia_bioenergetica: { padrao: /\b(foco de intensidade|ponto de sobrecarga)\b/i, tipo: "rerolar_dano" },
+  ilusionista_das_sombras: { padrao: /\b(fuma[çc]a e espelhos|ponto de umbra)\b/i, tipo: "invisibilidade" },
+};
+
+function detectarGastoRecurso(player, action) {
+  const regra = RECURSOS_TIER1[player.classe];
+  if (!regra || !regra.padrao.test(action)) return null;
+  return regra.tipo;
+}
+
 // --- COMBATE ---
 async function handleCombate(jogador_id, player, alvoNome, action, sessao_id, systemPrompt) {
   const inimigos = getActiveEnemies();
@@ -252,7 +270,7 @@ async function handleCombate(jogador_id, player, alvoNome, action, sessao_id, sy
 
   const ehManobra = /\b(furtiv|esgueirar|saltar|escalar|desarmar|empurrar|flanquear|surpresa)\w*/i.test(action);
   if (ehManobra) {
-    resultadoTeste = rollD20Test(jogador_id, "destreza", 13);
+    resultadoTeste = rollD20Test(jogador_id, "destreza", 13, { modo: resolverModoTeste({ jogador_id }).modo });
     temVantagem    = resultadoTeste.sucesso;
     falhouTeste    = !resultadoTeste.sucesso;
   }
@@ -265,8 +283,27 @@ async function handleCombate(jogador_id, player, alvoNome, action, sessao_id, sy
     return resposta(narrativa, { teste: resultadoTeste, acao_alvo: turnoInimigo });
   }
 
+  // Recurso de classe Tier 1 (ver docs/plano-pontos-recurso.md): se a ação
+  // menciona a habilidade e o jogador tem saldo, gasta e aplica o efeito
+  // antes do ataque. Sem saldo suficiente, o gasto é ignorado silenciosamente
+  // e o ataque segue normal (não bloqueia o combate por falta de um bônus).
+  const gastoRecurso = detectarGastoRecurso(player, action);
+  let recursoGasto = null;
+  let opcoesAtaque = {};
+  if (gastoRecurso === "rerolar_dano") {
+    try {
+      recursoGasto = gastarRecurso(jogador_id, 1);
+      opcoesAtaque = { rerrolarDanoBaixo: true };
+    } catch { /* sem saldo — ataque segue sem o bônus */ }
+  } else if (gastoRecurso === "invisibilidade") {
+    try {
+      recursoGasto = gastarRecurso(jogador_id, 1);
+      adicionarCondicao({ jogador_id }, "invisivel", { turnos: 2 });
+    } catch { /* sem saldo — nenhum efeito aplicado */ }
+  }
+
   // Ataque do jogador
-  const ataque = calculateAttack(jogador_id, alvo.id);
+  const ataque = calculateAttack(jogador_id, alvo.id, opcoesAtaque);
 
   // Monta prompt narrativo com todos os fatos mecânicos
   const promptAtaque = `O jogador ${player.nome} ${action}.
@@ -275,6 +312,8 @@ ${ataque.acertou ? `Dano causado: ${ataque.dano}. HP restante do ${alvo.nome_uni
 ${ataque.alvo.morreu ? `${alvo.nome_unico} foi derrotado!` : ""}
 ${temVantagem ? "A manobra foi bem executada, surpreendendo o inimigo." : ""}
 ${ataque.habilidade_usada ? `O jogador usou sua habilidade de assinatura "${ataque.habilidade_usada}" (dano ${ataque.tipo_dano}).` : ""}
+${gastoRecurso === "rerolar_dano" && recursoGasto ? `O jogador sobrecarregou o poder, gastando 1 ${recursoGasto.sigla} para potencializar o dano.` : ""}
+${gastoRecurso === "invisibilidade" && recursoGasto ? `O jogador se dissolveu nas sombras, gastando 1 ${recursoGasto.sigla} para ficar invisível.` : ""}
 Narre o resultado sem citar números.`;
 
   let narrativa = await narrar(sessao_id, systemPrompt, promptAtaque);
@@ -326,14 +365,27 @@ Narre a reação em 1 parágrafo curto.`;
     ataque_jogador: ataque,
     acao_alvo:      turnoInimigo,
     teste:          resultadoTeste,
+    recurso_gasto:  recursoGasto ? { tipo: gastoRecurso, ...recursoGasto } : null,
   });
 }
 
 // --- MAGIA ---
 async function handleMagia(jogador_id, player, action, sessao_id, systemPrompt) {
+  // Silenciado bloqueia magias com componente verbal (Readme.txt, Glossário de
+  // Condições) — o motor não distingue tipos de componente, então trata toda
+  // magia como verbal, simplificação documentada.
+  if (temCondicao({ jogador_id }, "silenciado")) {
+    const narrativaSilenciado = await narrar(
+      sessao_id, systemPrompt,
+      `${player.nome} tenta lançar uma magia, mas está Silenciado e não consegue emitir nenhum som. A magia falha sem efeito. Narre isso brevemente.`
+    );
+    return resposta(narrativaSilenciado, { teste: null, dano_magico: 0, bloqueado_por: "silenciado" });
+  }
+
   // Teste de Inteligência ou Sabedoria para lançar magia
   const atributoMagia = player.inteligencia >= player.sabedoria ? "inteligencia" : "sabedoria";
-  const resultadoTeste = rollD20Test(jogador_id, atributoMagia, 13);
+  const modo = resolverModoTeste({ jogador_id }).modo;
+  const resultadoTeste = rollD20Test(jogador_id, atributoMagia, 13, { modo });
 
   const danoMagico = resultadoTeste.sucesso ? rollDice("2d6") + rollD20Test(jogador_id, atributoMagia, 0).total : 0;
 
@@ -360,7 +412,14 @@ async function handleTeste(jogador_id, player, action, sessao_id, systemPrompt, 
   const atributoOuPericia = testeOverride?.pericia ?? testeOverride?.atributo ?? atributoDetectado;
   const dificuldade = testeOverride?.dificuldade ?? 12;
 
-  const resultado = rollD20Test(jogador_id, atributoOuPericia, dificuldade);
+  // Cego força falha automática só em testes visuais (o livro cita
+  // especificamente Percepção como exemplo) — senão, modo vantagem/
+  // desvantagem normal (só Amedrontado afeta testes de perícia em geral).
+  const opcoesTeste = (atributoOuPericia === "percepcao" && falhaAutomaticaVisual({ jogador_id }))
+    ? { falha_automatica: true }
+    : { modo: resolverModoTeste({ jogador_id }).modo };
+
+  const resultado = rollD20Test(jogador_id, atributoOuPericia, dificuldade, opcoesTeste);
 
   const nomeExibicao = resultado.pericia
     ? resultado.pericia.charAt(0).toUpperCase() + resultado.pericia.slice(1)
@@ -668,6 +727,10 @@ export async function processPlayerAction(jogador_id, action) {
   const player = getPlayer(jogador_id);
   if (!player) throw new Error(`Jogador ${jogador_id} não encontrado.`);
   if (!action?.trim()) throw new Error("Ação vazia.");
+
+  // Uma chamada a processPlayerAction = um turno do jogador (mesma semântica
+  // já usada pelo teste contra a morte) — decrementa a duração das condições ativas.
+  decrementarCondicoes({ jogador_id });
 
   // Sessão ativa do jogador (contexto do Ollama)
   const sessao   = getOrCreateActiveSession(jogador_id);

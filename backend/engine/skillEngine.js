@@ -1,6 +1,7 @@
 import { getPlayer, logWorldEvent } from "../db/database.js";
-import { rollDetailed, rollVantagem, rollDesvantagem, calculateModifier } from "./diceEngine.js";
+import { rollDetailed, rollVantagem, rollDesvantagem, rollD20ComModo, calculateModifier } from "./diceEngine.js";
 import { getClasse } from "../classData.js";
+import { falhaAutomaticaResistencia } from "./conditionEngine.js";
 
 // ==========================================
 // MAPA DE PERÍCIAS → ATRIBUTO BASE
@@ -183,27 +184,19 @@ export function rollD20Test(jogador_id, atributoOuPericia, dc = DC.medio, opcoes
   const bonusClasse = getBonusClassePericia(player.classe, periciaKey);
 
   // Rola d20 com modo (normal / vantagem / desvantagem)
-  let dado_bruto, rolagens;
   const modo = opcoes.modo ?? "normal";
-
-  if (modo === "vantagem") {
-    const r = rollVantagem();
-    dado_bruto = r.resultado;
-    rolagens   = r.rolagens;
-  } else if (modo === "desvantagem") {
-    const r = rollDesvantagem();
-    dado_bruto = r.resultado;
-    rolagens   = r.rolagens;
-  } else {
-    const r    = rollDetailed("1d20");
-    dado_bruto = r.total;
-    rolagens   = [dado_bruto];
-  }
+  const { resultado: dado_bruto, rolagens } = rollD20ComModo(modo);
 
   const total        = dado_bruto + modificador + bonusExtra + bonusClasse;
-  const sucesso      = dado_bruto !== 1 && (dado_bruto === 20 || total >= dc);
-  const critico      = dado_bruto === 20;
   const falhaCritica = dado_bruto === 1;
+  const critico       = dado_bruto === 20;
+  // Falha automática (ex.: Cego em teste visual, Atordoado/Paralisado em
+  // resistência FOR/DES) força sucesso:false incondicionalmente — a rolagem
+  // ainda acontece (log/flavor), sem exceção para 20 natural, já que o
+  // texto do livro não menciona uma.
+  const sucesso = opcoes.falha_automatica
+    ? false
+    : dado_bruto !== 1 && (dado_bruto === 20 || total >= dc);
 
   return {
     atributo:      atributo.toUpperCase(),
@@ -218,6 +211,7 @@ export function rollD20Test(jogador_id, atributoOuPericia, dc = DC.medio, opcoes
     sucesso,
     critico,
     falha_critica: falhaCritica,
+    falha_automatica: !!opcoes.falha_automatica,
     modo,
     margem:        total - dc, // positivo = passou por quanto, negativo = falhou por quanto
   };
@@ -230,8 +224,15 @@ export function rollD20Test(jogador_id, atributoOuPericia, dc = DC.medio, opcoes
 /**
  * Teste de salvaguarda — resistir a um efeito (veneno, magia, armadilha...).
  * Igual ao rollD20Test mas com proficiência automática em salvaguardas do personagem.
+ * Atordoado/Paralisado forçam falha automática em salvaguardas de Força/Destreza
+ * (Readme.txt, Glossário de Condições).
+ * NOTA: sem chamador em nenhum lugar do código hoje — infraestrutura pronta,
+ * como outras peças desta sessão (ex.: estabilizarAliado).
  */
 export function rollSalvaguarda(jogador_id, atributo, dc = DC.medio, modo = "normal") {
+  if (falhaAutomaticaResistencia({ jogador_id }, atributo)) {
+    return rollD20Test(jogador_id, atributo, dc, { proficiente: true, falha_automatica: true });
+  }
   return rollD20Test(jogador_id, atributo, dc, { modo, proficiente: true });
 }
 

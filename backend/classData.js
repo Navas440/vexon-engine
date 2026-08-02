@@ -7,11 +7,19 @@
 // ca_formula: null = genérica (10 + mod Destreza); senão uma das chaves tratadas
 //             em calcularCaClasse abaixo
 // ataque_assinatura: só as classes conjuradoras têm — substitui o ataque de arma
-//             por um ataque baseado no atributo da classe
+//             por um ataque baseado no atributo da classe. alcance: "distancia"
+//             |"corpo_a_corpo"|"ambos" (usado por conditionEngine.js para decidir
+//             vantagem/desvantagem contra Caído e o crítico automático do
+//             Paralisado — "ambos" vira corpo_a_corpo no resolver, heurística
+//             documentada já que não existe sistema de posição real no motor)
 // bonus_dano_dado: só Herdeiro Tático e Predador Estelar têm — bônus fixo somado
 //             em todo ataque, além da arma equipada
 // habilidades_nivel1: só para exibição na ficha/tela de criação, não mecanizadas
 //             além do que está em ca_formula/ataque_assinatura/bonus_dano_dado
+// recurso_classe: só nas classes com o recurso de nível 2 implementado (ver
+//             docs/plano-pontos-recurso.md) — {nome, sigla, recupera_em}; o
+//             máximo (=nível, a partir do 2) é calculado em runtime por
+//             resourceEngine.js, não guardado aqui
 
 import { calculateModifier } from "./engine/diceEngine.js";
 
@@ -43,7 +51,8 @@ export const CLASSES = {
     dado_vida: 8,
     atributos_principais: ["carisma", "resistencia"],
     ca_formula: null,
-    ataque_assinatura: { atributo: "carisma", dado_dano: "1d10", tipo_dano: "energia", nome_habilidade: "Pulso de Quasiluz" },
+    ataque_assinatura: { atributo: "carisma", dado_dano: "1d10", tipo_dano: "energia", nome_habilidade: "Pulso de Quasiluz", alcance: "distancia" },
+    recurso_classe: { nome: "Pontos de Sobrecarga", sigla: "PS", recupera_em: ["curto", "longo"] },
     bonus_dano_dado: null,
     bonus_dano_tipo: null,
     pericias_iniciais: [
@@ -65,7 +74,8 @@ export const CLASSES = {
     dado_vida: 8,
     atributos_principais: ["inteligencia", "destreza"],
     ca_formula: null,
-    ataque_assinatura: { atributo: "inteligencia", dado_dano: "1d8", tipo_dano: "necrótico", nome_habilidade: "Lâmina de Sombra / Raio Sombrio" },
+    ataque_assinatura: { atributo: "inteligencia", dado_dano: "1d8", tipo_dano: "necrótico", nome_habilidade: "Lâmina de Sombra / Raio Sombrio", alcance: "ambos" },
+    recurso_classe: { nome: "Pontos de Umbros", sigla: "PU", recupera_em: ["curto", "longo"] },
     bonus_dano_dado: null,
     bonus_dano_tipo: null,
     pericias_iniciais: [
@@ -86,7 +96,8 @@ export const CLASSES = {
     dado_vida: 6,
     atributos_principais: ["sabedoria", "resistencia"],
     ca_formula: null,
-    ataque_assinatura: { atributo: "sabedoria", dado_dano: "1d10", tipo_dano: "elemental", nome_habilidade: "Sintonização Primordial" },
+    ataque_assinatura: { atributo: "sabedoria", dado_dano: "1d10", tipo_dano: "elemental", nome_habilidade: "Sintonização Primordial", alcance: "distancia" },
+    recurso_classe: { nome: "Pontos de Essência", sigla: "PE", recupera_em: ["curto", "longo"] },
     bonus_dano_dado: null,
     bonus_dano_tipo: null,
     pericias_iniciais: [
@@ -107,7 +118,7 @@ export const CLASSES = {
     dado_vida: 6,
     atributos_principais: ["inteligencia", "destreza"],
     ca_formula: null,
-    ataque_assinatura: { atributo: "inteligencia", dado_dano: "1d10", tipo_dano: "arcano-digital", nome_habilidade: "Compilador Sintético" },
+    ataque_assinatura: { atributo: "inteligencia", dado_dano: "1d10", tipo_dano: "arcano-digital", nome_habilidade: "Compilador Sintético", alcance: "distancia" },
     bonus_dano_dado: null,
     bonus_dano_tipo: null,
     pericias_iniciais: [
@@ -233,7 +244,7 @@ export const CLASSES = {
     dado_vida: 8,
     atributos_principais: ["resistencia"],
     ca_formula: null,
-    ataque_assinatura: { atributo: "forca", dado_dano: "1d8", tipo_dano: "natural", nome_habilidade: "Golpe Instintivo" },
+    ataque_assinatura: { atributo: "forca", dado_dano: "1d8", tipo_dano: "natural", nome_habilidade: "Golpe Instintivo", alcance: "ambos" },
     bonus_dano_dado: null,
     bonus_dano_tipo: null,
     // Readme.txt dá Atletismo/Acrobacia/Percepção em +3/+2/+1, mas a ORDEM depende

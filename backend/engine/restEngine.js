@@ -14,6 +14,7 @@ import {
 } from "../db/database.js";
 import { getClasse } from "../classData.js";
 import { rollDice, calculateModifier } from "./diceEngine.js";
+import { recuperarRecurso } from "./resourceEngine.js";
 
 const LIMITE_DESCANSO_LONGO_MS = 24 * 60 * 60 * 1000;
 
@@ -58,6 +59,7 @@ export function descansoCurto(jogador_id, quantidade_dados = 1) {
 
   gastarDadosDeVida(jogador_id, quantidadeReal);
   updatePlayerHP(jogador_id, hpDepois);
+  recuperarRecurso(jogador_id); // PE/PU/PS/... recuperam por completo também no Descanso Curto
 
   return {
     tipo: "curto",
@@ -97,6 +99,7 @@ export function descansoLongo(jogador_id) {
   updatePlayerHP(jogador_id, player.hp_maximo);
   resetDadosDeVida(jogador_id);
   registrarDescansoLongo(jogador_id, agora);
+  recuperarRecurso(jogador_id); // PE/PU/PS/... recuperam por completo também no Descanso Longo
 
   return {
     tipo: "longo",

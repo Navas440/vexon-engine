@@ -349,6 +349,8 @@ addColumnIfMissing('jogadores', 'dados_vida_gastos', 'INTEGER DEFAULT 0');
 addColumnIfMissing('jogadores', 'ultimo_descanso_longo', 'INTEGER DEFAULT NULL');
 addColumnIfMissing('jogadores', 'death_save_sucessos', 'INTEGER DEFAULT 0');
 addColumnIfMissing('jogadores', 'death_save_falhas', 'INTEGER DEFAULT 0');
+// gasto do recurso de classe (PE/PU/PS/...) — máximo calculado em runtime (nivel), não guardado
+addColumnIfMissing('jogadores', 'recurso_classe_gasto', 'INTEGER DEFAULT 0');
 
 // ==========================================
 // COMPÊNDIO — NPCs
@@ -525,6 +527,23 @@ export function gastarDadosDeVida(id, quantidade) {
  */
 export function resetDadosDeVida(id) {
   return db.prepare('UPDATE jogadores SET dados_vida_gastos = 0, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?')
+    .run(id);
+}
+
+/**
+ * Registra o gasto de N pontos do recurso de classe (PE/PU/PS/...).
+ */
+export function gastarRecursoClasse(id, quantidade) {
+  return db.prepare('UPDATE jogadores SET recurso_classe_gasto = recurso_classe_gasto + ?, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?')
+    .run(quantidade, id);
+}
+
+/**
+ * Zera o recurso de classe gasto — chamado em Descanso Curto ou Longo
+ * (PE/PU/PS/PA/PR/FV recuperam por completo nos dois, conforme Readme.txt).
+ */
+export function resetRecursoClasse(id) {
+  return db.prepare('UPDATE jogadores SET recurso_classe_gasto = 0, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?')
     .run(id);
 }
 
