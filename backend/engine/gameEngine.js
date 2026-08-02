@@ -353,13 +353,21 @@ Narre o efeito com linguagem mística do universo Vexon.`;
 async function handleTeste(jogador_id, player, action, sessao_id, systemPrompt, testeOverride = null) {
   // Detecta atributo mencionado na ação ou usa destreza como padrão
   const atributos  = ["forca","destreza","resistencia","inteligencia","sabedoria","carisma"];
-  const atributo   = testeOverride?.atributo ?? (atributos.find(a => action.toLowerCase().includes(a)) ?? "destreza");
+  const atributoDetectado = atributos.find(a => action.toLowerCase().includes(a)) ?? "destreza";
+  // Prioriza a perícia (quando resolverManobra identificou uma) para que
+  // rollD20Test aplique o bonus_classe — perícia e atributo puro usam o
+  // mesmo parâmetro (resolverAtributo/resolverNomePericia tratam os dois).
+  const atributoOuPericia = testeOverride?.pericia ?? testeOverride?.atributo ?? atributoDetectado;
   const dificuldade = testeOverride?.dificuldade ?? 12;
 
-  const resultado = rollD20Test(jogador_id, atributo, dificuldade);
+  const resultado = rollD20Test(jogador_id, atributoOuPericia, dificuldade);
+
+  const nomeExibicao = resultado.pericia
+    ? resultado.pericia.charAt(0).toUpperCase() + resultado.pericia.slice(1)
+    : resultado.atributo.toLowerCase();
 
   const prompt = `O jogador tentou: "${action}".
-Exigiu teste de ${atributo} (Dificuldade ${dificuldade}). Rolou ${resultado.total}.
+Exigiu teste de ${nomeExibicao} (Dificuldade ${dificuldade}). Rolou ${resultado.total}.
 Resultado: ${resultado.sucesso ? "SUCESSO" : "FALHA"}.
 Narre a cena sem citar números ou mecânicas.`;
 

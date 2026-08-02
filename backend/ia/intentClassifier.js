@@ -14,40 +14,52 @@ const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "mistral";
 const TIMEOUT      = 8000; // Classificação precisa ser rápida
 
 // ==========================================
-// MAPA DE MANOBRAS → ATRIBUTO + DIFICULDADE
+// MAPA DE MANOBRAS → ATRIBUTO + DIFICULDADE + PERÍCIA
 // ==========================================
 // Fonte de verdade para os números de um teste de perícia. A IA nunca define
 // atributo/CD — só ajuda a reconhecer que a ação é um "teste"; o valor final
 // vem sempre desta tabela (ou do fallback genérico em resolverManobra).
+//
+// pericia mapeia para uma chave oficial de skillEngine.js:PERICIAS quando a
+// manobra corresponde a uma perícia real do livro — isso é o que permite
+// rollD20Test aplicar o bonus_classe (perícia inicial da classe). Fica null
+// quando a manobra é um Teste de Atributo puro ou um Teste de Resistência
+// (categorias distintas de Teste de Perícia no Readme.txt), para não
+// inventar uma perícia que o livro não define para aquele caso.
+//
+// "flanquear/surpreender/emboscar" é ambíguo no livro (não é uma perícia
+// nomeada) — mapeado para "furtividade" porque na prática exige não ser
+// percebido antes do golpe, mesma lógica de "esgueirar/esconder" acima.
 
 const MANOBRAS = [
-  { padrao: /\b(esgueirar|furtiv|esconder|sombra)\w*/i,       atributo: "destreza",    dc: 13 },
-  { padrao: /\b(saltar|pular|acrobacia|rolar|esquivar)\w*/i,  atributo: "destreza",    dc: 12 },
-  { padrao: /\b(escalar|trepar|subir em)\w*/i,                atributo: "forca",       dc: 14 },
-  { padrao: /\b(empurrar|arrombar|quebrar|forçar)\w*/i,       atributo: "forca",       dc: 15 },
-  { padrao: /\b(enganar|blefar|mentir|disfarç)\w*/i,          atributo: "carisma",     dc: 14 },
-  { padrao: /\b(persuadir|convencer|negociar)\w*/i,           atributo: "carisma",     dc: 13 },
-  { padrao: /\b(intimidar|ameaçar|assustar)\w*/i,             atributo: "carisma",     dc: 12 },
-  { padrao: /\b(perceber|notar|detectar|sentir)\w*/i,         atributo: "sabedoria",   dc: 12 },
-  { padrao: /\b(investigar|examinar|analisar|decifrar)\w*/i,  atributo: "inteligencia",dc: 13 },
-  { padrao: /\b(rastrear|sobreviver|orientar)\w*/i,           atributo: "sabedoria",   dc: 14 },
-  { padrao: /\b(concentrar|lembrar|calcular|resolver)\w*/i,   atributo: "inteligencia",dc: 12 },
-  { padrao: /\b(resistir|aguentar|suportar|tolerar)\w*/i,     atributo: "resistencia", dc: 13 },
-  { padrao: /\b(flanquear|surpreender|emboscar|atacar pelas costas)\w*/i, atributo: "destreza", dc: 14 },
+  { padrao: /\b(esgueirar|furtiv|esconder|sombra)\w*/i,       atributo: "destreza",    dc: 13, pericia: "furtividade"   },
+  { padrao: /\b(saltar|pular|acrobacia|rolar|esquivar)\w*/i,  atributo: "destreza",    dc: 12, pericia: "acrobacia"     },
+  { padrao: /\b(escalar|trepar|subir em)\w*/i,                atributo: "forca",       dc: 14, pericia: "atletismo"    },
+  { padrao: /\b(empurrar|arrombar|quebrar|forçar)\w*/i,       atributo: "forca",       dc: 15, pericia: "atletismo"    },
+  { padrao: /\b(enganar|blefar|mentir|disfarç)\w*/i,          atributo: "carisma",     dc: 14, pericia: "enganacao"    },
+  { padrao: /\b(persuadir|convencer|negociar)\w*/i,           atributo: "carisma",     dc: 13, pericia: "persuasao"    },
+  { padrao: /\b(intimidar|ameaçar|assustar)\w*/i,             atributo: "carisma",     dc: 12, pericia: "intimidacao" },
+  { padrao: /\b(perceber|notar|detectar|sentir)\w*/i,         atributo: "sabedoria",   dc: 12, pericia: "percepcao"    },
+  { padrao: /\b(investigar|examinar|analisar|decifrar)\w*/i,  atributo: "inteligencia",dc: 13, pericia: "investigacao" },
+  { padrao: /\b(rastrear|sobreviver|orientar)\w*/i,           atributo: "sabedoria",   dc: 14, pericia: "sobrevivencia"},
+  { padrao: /\b(concentrar|lembrar|calcular|resolver)\w*/i,   atributo: "inteligencia",dc: 12, pericia: null }, // Teste de Atributo puro — Readme não tem perícia para isso
+  { padrao: /\b(resistir|aguentar|suportar|tolerar)\w*/i,     atributo: "resistencia", dc: 13, pericia: null }, // Teste de Resistência (seção 2 do Readme) — categoria separada de perícia
+  { padrao: /\b(flanquear|surpreender|emboscar|atacar pelas costas)\w*/i, atributo: "destreza", dc: 14, pericia: "furtividade" },
 ];
 
 /**
- * Resolve atributo + dificuldade de um teste a partir do texto da ação.
- * Determinístico — nunca vem da IA. Sem padrão específico, usa o genérico
- * (destreza, CD 12) que já era o default anterior de handleTeste.
+ * Resolve atributo + dificuldade + perícia (quando aplicável) de um teste a
+ * partir do texto da ação. Determinístico — nunca vem da IA. Sem padrão
+ * específico, usa o genérico (destreza, CD 12, sem perícia) que já era o
+ * default anterior de handleTeste.
  */
 export function resolverManobra(texto) {
   for (const manobra of MANOBRAS) {
     if (manobra.padrao.test(texto)) {
-      return { atributo: manobra.atributo, dificuldade: manobra.dc };
+      return { atributo: manobra.atributo, dificuldade: manobra.dc, pericia: manobra.pericia };
     }
   }
-  return { atributo: "destreza", dificuldade: 12 };
+  return { atributo: "destreza", dificuldade: 12, pericia: null };
 }
 
 // ==========================================
