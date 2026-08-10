@@ -9,7 +9,7 @@ import {
 } from "../db/database.js";
 import { rollDice, rollDetailed, rollD20ComModo, calculateModifier } from "./diceEngine.js";
 import { getEmotionalContext, updateEmotionalState, addRichMemory, criarMemoriaRica } from "../ia/npcsoulEngine.js";
-import { getClasse } from "../classData.js";
+import { getClasse, getBonusDanoDado } from "../classData.js";
 import { TOM_VEXON } from "../loreVexon.js";
 import { aplicarDanoEm0HP } from "./deathEngine.js";
 import { resolverModoAtaque, critAutomaticoPorParalisia, decrementarCondicoes } from "./conditionEngine.js";
@@ -180,9 +180,11 @@ function executarAtaque(entidade, player, jogador_id) {
     let dadoDano     = rollDetailed(stringDano).total;
     if (critico) dadoDano += rollDice(stringDano);
 
-    // Bônus fixo de dano por classe (Herdeiro Tático, Predador Estelar) — somado
-    // ao dano final, não re-rolado no crítico (bônus por golpe, não dado base).
-    const bonusDadoClasse = classeInfo?.bonus_dano_dado ? rollDice(classeInfo.bonus_dano_dado) : 0;
+    // Bônus fixo de dano por classe (Herdeiro Tático escalado por nível, Predador
+    // Estelar fixo) — somado ao dano final, não re-rolado no crítico (bônus por
+    // golpe, não dado base). Quem ataca aqui é a entidade — usa o nível dela.
+    const danoDadoClasse  = getBonusDanoDado(entidade.classe, entidade.nivel);
+    const bonusDadoClasse = danoDadoClasse ? rollDice(danoDadoClasse) : 0;
 
     dano              = Math.max(1, dadoDano + modAtaque + (entidade.bonus_dano || 0) + bonusDadoClasse);
 

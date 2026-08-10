@@ -10,7 +10,7 @@ import {
   registrarDeathSave,
 } from "../db/database.js";
 import { calculateModifier } from "./skillEngine.js";
-import { getClasse } from "../classData.js";
+import { getClasse, getBonusDanoDado } from "../classData.js";
 import { aplicarDanoEm0HP } from "./deathEngine.js";
 import { rollD20ComModo } from "./diceEngine.js";
 import { resolverModoAtaque, critAutomaticoPorParalisia, temCondicao } from "./conditionEngine.js";
@@ -150,9 +150,11 @@ export function calculateAttack(jogador_id, entidade_ativa_id, opcoes = {}) {
   // Crítico: rola os dados de dano uma segunda vez (não dobra o total — regra D&D 5e)
   if (critico) dadoDano += rollDiceString(stringDano);
 
-  // Bônus fixo de dano por classe (Herdeiro Tático, Predador Estelar) — somado ao dano
-  // final, não re-rolado no crítico (é um bônus por golpe, não parte do dado da arma).
-  const bonusDadoClasse = classeInfo?.bonus_dano_dado ? rollDiceString(classeInfo.bonus_dano_dado) : 0;
+  // Bônus fixo de dano por classe (Herdeiro Tático escalado por nível, Predador
+  // Estelar fixo) — somado ao dano final, não re-rolado no crítico (é um bônus
+  // por golpe, não parte do dado da arma).
+  const danoDadoClasse  = getBonusDanoDado(player.classe, player.nivel);
+  const bonusDadoClasse = danoDadoClasse ? rollDiceString(danoDadoClasse) : 0;
 
   const bonusDano   = modAtaque + (alvo.dano_bonus || 0) + (arma ? 0 : 0) + bonusDadoClasse;
   const danoFinal   = Math.max(1, dadoDano + bonusDano);
@@ -259,8 +261,10 @@ export function entityAttacksPlayer(entidade_ativa_id, jogador_id) {
   let dadoDano = rollDiceString(stringDano);
   if (critico) dadoDano += rollDiceString(stringDano);
 
-  // Bônus fixo de dano por classe (Herdeiro Tático, Predador Estelar).
-  const bonusDadoClasse = classeInfo?.bonus_dano_dado ? rollDiceString(classeInfo.bonus_dano_dado) : 0;
+  // Bônus fixo de dano por classe (Herdeiro Tático escalado por nível, Predador
+  // Estelar fixo). Quem ataca aqui é a entidade, não o jogador — usa o nível dela.
+  const danoDadoClasse  = getBonusDanoDado(entidade.classe, entidade.nivel);
+  const bonusDadoClasse = danoDadoClasse ? rollDiceString(danoDadoClasse) : 0;
 
   const bonusDano  = modForca + (entidade.bonus_dano || 0) + bonusDadoClasse;
   const danoFinal  = Math.max(1, dadoDano + bonusDano);

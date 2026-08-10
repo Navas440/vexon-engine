@@ -294,6 +294,25 @@ export function getClasse(id) {
 }
 
 /**
+ * Resolve o dado de bônus de dano de classe para um dado nível. Só o
+ * Herdeiro Tático escala (Dano Furtivo: 1d6 nv1-2, 2d6 nv3-4, 3d6 nv5-6,
+ * 4d6 nv7-8, 5d6 nv9-10, Readme.txt) — as demais classes com
+ * bonus_dano_dado (ex.: Predador Estelar) continuam com o valor fixo.
+ */
+export function getBonusDanoDado(classeId, nivel) {
+  const c = getClasse(classeId);
+  if (!c?.bonus_dano_dado) return null;
+  if (classeId !== "herdeiro_tatico") return c.bonus_dano_dado;
+
+  const n = nivel ?? 1;
+  if (n >= 9) return "5d6";
+  if (n >= 7) return "4d6";
+  if (n >= 5) return "3d6";
+  if (n >= 3) return "2d6";
+  return "1d6";
+}
+
+/**
  * Calcula a CA de um personagem no momento da criação, usando a fórmula
  * própria da classe (se houver) ou a fórmula genérica (10 + mod Destreza),
  * seguindo o mesmo padrão de calcularCaNpc() em entityHandler.js.

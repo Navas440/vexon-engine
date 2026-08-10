@@ -25,7 +25,7 @@ Modelo de dados genérico em `classData.js:recurso_classe` (`{nome, sigla, recup
 
 | Classe | Recurso (Readme.txt) | Status |
 |---|---|---|
-| Herdeiro Tático | Dano Furtivo escalado por nível (não é pool de pontos) | 🟡 só o dado fixo de nível 1 (`bonus_dano_dado: "1d6"`), sem escala (2d6 no nv3, 5d6 no nv9...) |
+| Herdeiro Tático | Dano Furtivo escalado por nível (não é pool de pontos) | ✅ `classData.js:getBonusDanoDado` resolve 1d6 (nv1-2) / 2d6 (nv3-4) / 3d6 (nv5-6) / 4d6 (nv7-8) / 5d6 (nv9-10), lido em `combatEngine.js:calculateAttack`/`entityAttacksPlayer` e `entityTurn.js:executarAtaque`. Mantida a simplificação já aceita: aplicado em todo ataque, sem exigir Vantagem ou aliado a 1,5m do alvo. |
 | Anomalia Bioenergética | Pontos de Sobrecarga (PS) | ✅ `classData.js:recurso_classe` + gasto de 1 PS via `gameEngine.js:handleCombate` (palavra-chave "foco de intensidade"/"ponto de sobrecarga") aplica `opcoes.rerrolarDanoBaixo` em `calculateAttack` (rerrola o dado do Pulso de Quasiluz se sair 1 ou 2) |
 | Ilusionista das Sombras | Pontos de Umbros (PU) | ✅ gasto de 1 PU via palavra-chave "fumaça e espelhos"/"ponto de umbra" aplica a condição `invisivel` (`conditionEngine.js`) antes do ataque — único uso de recurso desta leva que não é rerrolar dano |
 | Arconte | Pontos de Essência (PE) | ✅ mesmo padrão da Anomalia — palavra-chave "sobrecarga"/"ponto de essência" rerrola o dado da Sintonização Primordial se sair 1 ou 2 |
@@ -42,7 +42,7 @@ Modelo de dados genérico em `classData.js:recurso_classe` (`{nome, sigla, recup
 
 | Classe | CA especial | Ataque de assinatura | Bônus fixo de dano |
 |---|---|---|---|
-| Herdeiro Tático | ❌ genérica | ❌ (usa arma) | ✅ 1d6 furtivo |
+| Herdeiro Tático | ❌ genérica | ❌ (usa arma) | ✅ 1d6→5d6 furtivo (escala por nível) |
 | Anomalia Bioenergética | ❌ genérica | ✅ Pulso de Quasiluz (Carisma, 1d10 energia) | — |
 | Ilusionista das Sombras | ❌ genérica | ✅ Lâmina/Raio Sombrio (Inteligência, 1d8 necrótico) | — |
 | Arconte | ❌ genérica | ✅ Sintonização Primordial (Sabedoria, 1d10 elemental) | — |
@@ -57,6 +57,6 @@ Modelo de dados genérico em `classData.js:recurso_classe` (`{nome, sigla, recup
 
 ## Resumo
 
-O que passou de ❌/🟡 para ✅ até agora: **Descanso** (curto/longo, com Dados de Vida reais em vez do heal fixo de 50%), **Teste contra a Morte** (loop completo de sucessos/falhas, incluindo o caso especial de dano a 0 HP e a ação de estabilizar um aliado), **Teste de perícia** (o intent `"teste"` e `handleTeste` eram código morto — ficaram alcançáveis via fallback `classificarComOllama` + `resolverManobra`, sem a IA nunca definir CD/atributo), **Perícias oficiais + perícias iniciais por classe** (lista de 14 perícias corrigida para bater com o livro, bug de Medicina regida por Sabedoria em vez de Inteligência corrigido, e `pericias_iniciais` das 12 classes modelado e somado em `rollD20Test` como `bonus_classe`), **Condições** (as 7 condições oficiais, com vantagem/desvantagem e falha/crítico automáticos ligados em todos os caminhos de rolagem — infraestrutura pronta, ainda sem habilidade de classe que as aplique) e **Pontos de recurso por classe** (3 das 9 classes — Arconte/Anomalia Bioenergética/Ilusionista das Sombras — com pool rastreado, recuperado no descanso, e uma habilidade de nível 2 gastável cada).
+O que passou de ❌/🟡 para ✅ até agora: **Descanso** (curto/longo, com Dados de Vida reais em vez do heal fixo de 50%), **Teste contra a Morte** (loop completo de sucessos/falhas, incluindo o caso especial de dano a 0 HP e a ação de estabilizar um aliado), **Teste de perícia** (o intent `"teste"` e `handleTeste` eram código morto — ficaram alcançáveis via fallback `classificarComOllama` + `resolverManobra`, sem a IA nunca definir CD/atributo), **Perícias oficiais + perícias iniciais por classe** (lista de 14 perícias corrigida para bater com o livro, bug de Medicina regida por Sabedoria em vez de Inteligência corrigido, e `pericias_iniciais` das 12 classes modelado e somado em `rollD20Test` como `bonus_classe`), **Condições** (as 7 condições oficiais, com vantagem/desvantagem e falha/crítico automáticos ligados em todos os caminhos de rolagem — infraestrutura pronta, ainda sem habilidade de classe que as aplique), **Pontos de recurso por classe** (3 das 9 classes — Arconte/Anomalia Bioenergética/Ilusionista das Sombras — com pool rastreado, recuperado no descanso, e uma habilidade de nível 2 gastável cada) e **Dano Furtivo do Herdeiro Tático escalado por nível** (1d6 a 5d6 conforme a tabela do livro, em vez do bônus fixo de nível 1 aplicado em qualquer nível).
 
 Tudo o mais listado acima — os 6 pontos de recurso restantes, as 12 árvores de subclasse — continua fora do escopo e seria, cada um, um projeto à parte (ver `docs/plano-pontos-recurso.md` para a ordem recomendada dos que faltam). O gap de integração que existia entre `resolverManobra` e `bonus_classe` foi fechado: `MANOBRAS` agora carrega a perícia oficial de cada manobra, e `handleTeste` a repassa para `rollD20Test`.
