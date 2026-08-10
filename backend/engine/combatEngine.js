@@ -150,13 +150,19 @@ export function calculateAttack(jogador_id, entidade_ativa_id, opcoes = {}) {
   // Crítico: rola os dados de dano uma segunda vez (não dobra o total — regra D&D 5e)
   if (critico) dadoDano += rollDiceString(stringDano);
 
-  // Bônus fixo de dano por classe (Herdeiro Tático escalado por nível, Predador
-  // Estelar fixo) — somado ao dano final, não re-rolado no crítico (é um bônus
-  // por golpe, não parte do dado da arma).
+  // Potencializar (Desperto Vex, 1 FV): soma um dado extra ao Golpe Instintivo —
+  // aditivo, não substitui nem rerrola o dado base (diferente de rerrolarDanoBaixo).
+  const bonusDanoExtra = (opcoes.bonusDanoExtra && ataqueAssinatura)
+    ? rollDiceString(opcoes.bonusDanoExtra)
+    : 0;
+
+  // Bônus fixo de dano por classe (Herdeiro Tático e Predador Estelar, ambos
+  // escalados por nível via getBonusDanoDado) — somado ao dano final, não
+  // re-rolado no crítico (é um bônus por golpe, não parte do dado da arma).
   const danoDadoClasse  = getBonusDanoDado(player.classe, player.nivel);
   const bonusDadoClasse = danoDadoClasse ? rollDiceString(danoDadoClasse) : 0;
 
-  const bonusDano   = modAtaque + (alvo.dano_bonus || 0) + (arma ? 0 : 0) + bonusDadoClasse;
+  const bonusDano   = modAtaque + (alvo.dano_bonus || 0) + (arma ? 0 : 0) + bonusDadoClasse + bonusDanoExtra;
   const danoFinal   = Math.max(1, dadoDano + bonusDano);
 
   // ---- APLICA DANO ----

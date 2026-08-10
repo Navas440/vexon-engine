@@ -180,9 +180,10 @@ function executarAtaque(entidade, player, jogador_id) {
     let dadoDano     = rollDetailed(stringDano).total;
     if (critico) dadoDano += rollDice(stringDano);
 
-    // Bônus fixo de dano por classe (Herdeiro Tático escalado por nível, Predador
-    // Estelar fixo) — somado ao dano final, não re-rolado no crítico (bônus por
-    // golpe, não dado base). Quem ataca aqui é a entidade — usa o nível dela.
+    // Bônus fixo de dano por classe (Herdeiro Tático e Predador Estelar, ambos
+    // escalados por nível via getBonusDanoDado) — somado ao dano final, não
+    // re-rolado no crítico (bônus por golpe, não dado base). Quem ataca aqui
+    // é a entidade — usa o nível dela.
     const danoDadoClasse  = getBonusDanoDado(entidade.classe, entidade.nivel);
     const bonusDadoClasse = danoDadoClasse ? rollDice(danoDadoClasse) : 0;
 

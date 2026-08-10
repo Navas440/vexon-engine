@@ -235,6 +235,7 @@ const RECURSOS_TIER1 = {
   arconte: { padrao: /\b(sobrecarga|ponto de ess[êe]ncia)\b/i, tipo: "rerolar_dano" },
   anomalia_bioenergetica: { padrao: /\b(foco de intensidade|ponto de sobrecarga)\b/i, tipo: "rerolar_dano" },
   ilusionista_das_sombras: { padrao: /\b(fuma[çc]a e espelhos|ponto de umbra)\b/i, tipo: "invisibilidade" },
+  desperto_vex: { padrao: /\b(potencializar|ponto de fator vex)\b/i, tipo: "bonus_dano_extra" },
 };
 
 function detectarGastoRecurso(player, action) {
@@ -300,6 +301,11 @@ async function handleCombate(jogador_id, player, alvoNome, action, sessao_id, sy
       recursoGasto = gastarRecurso(jogador_id, 1);
       adicionarCondicao({ jogador_id }, "invisivel", { turnos: 2 });
     } catch { /* sem saldo — nenhum efeito aplicado */ }
+  } else if (gastoRecurso === "bonus_dano_extra") {
+    try {
+      recursoGasto = gastarRecurso(jogador_id, 1);
+      opcoesAtaque = { bonusDanoExtra: "1d6" };
+    } catch { /* sem saldo — ataque segue sem o bônus */ }
   }
 
   // Ataque do jogador
@@ -314,6 +320,7 @@ ${temVantagem ? "A manobra foi bem executada, surpreendendo o inimigo." : ""}
 ${ataque.habilidade_usada ? `O jogador usou sua habilidade de assinatura "${ataque.habilidade_usada}" (dano ${ataque.tipo_dano}).` : ""}
 ${gastoRecurso === "rerolar_dano" && recursoGasto ? `O jogador sobrecarregou o poder, gastando 1 ${recursoGasto.sigla} para potencializar o dano.` : ""}
 ${gastoRecurso === "invisibilidade" && recursoGasto ? `O jogador se dissolveu nas sombras, gastando 1 ${recursoGasto.sigla} para ficar invisível.` : ""}
+${gastoRecurso === "bonus_dano_extra" && recursoGasto ? `O jogador canalizou sua mutação, gastando 1 ${recursoGasto.sigla} para potencializar o golpe com força extra.` : ""}
 Narre o resultado sem citar números.`;
 
   let narrativa = await narrar(sessao_id, systemPrompt, promptAtaque);

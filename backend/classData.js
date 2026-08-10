@@ -247,6 +247,7 @@ export const CLASSES = {
     ataque_assinatura: { atributo: "forca", dado_dano: "1d8", tipo_dano: "natural", nome_habilidade: "Golpe Instintivo", alcance: "ambos" },
     bonus_dano_dado: null,
     bonus_dano_tipo: null,
+    recurso_classe: { nome: "Fator Vex", sigla: "FV", recupera_em: ["curto", "longo"] },
     // Readme.txt dá Atletismo/Acrobacia/Percepção em +3/+2/+1, mas a ORDEM depende
     // do Traço Mutante escolhido na criação — que já está marcado acima como
     // "flavor nesta versão, não mecanizado". Sem o traço mecanizado não há como
@@ -294,22 +295,35 @@ export function getClasse(id) {
 }
 
 /**
- * Resolve o dado de bônus de dano de classe para um dado nível. Só o
- * Herdeiro Tático escala (Dano Furtivo: 1d6 nv1-2, 2d6 nv3-4, 3d6 nv5-6,
- * 4d6 nv7-8, 5d6 nv9-10, Readme.txt) — as demais classes com
- * bonus_dano_dado (ex.: Predador Estelar) continuam com o valor fixo.
+ * Resolve o dado de bônus de dano de classe para um dado nível. Duas
+ * classes escalam com nível diferente entre si, conforme Readme.txt:
+ * - Herdeiro Tático (Dano Furtivo): escala a QUANTIDADE de dados —
+ *   1d6 nv1-2, 2d6 nv3-4, 3d6 nv5-6, 4d6 nv7-8, 5d6 nv9-10.
+ * - Predador Estelar (Contrato de Caça): escala o TAMANHO do dado —
+ *   1d6 nv1-4, 1d8 nv5-8, 1d10 nv9-10. Mantida a simplificação já aceita
+ *   de aplicar em todo ataque, sem exigir marcar a Presa (ver
+ *   docs/plano-contrato-caca.md para a mecânica de marcação real, não
+ *   implementada — decisão registrada lá).
+ * As demais classes com bonus_dano_dado continuam com o valor fixo.
  */
 export function getBonusDanoDado(classeId, nivel) {
   const c = getClasse(classeId);
   if (!c?.bonus_dano_dado) return null;
-  if (classeId !== "herdeiro_tatico") return c.bonus_dano_dado;
-
   const n = nivel ?? 1;
-  if (n >= 9) return "5d6";
-  if (n >= 7) return "4d6";
-  if (n >= 5) return "3d6";
-  if (n >= 3) return "2d6";
-  return "1d6";
+
+  if (classeId === "herdeiro_tatico") {
+    if (n >= 9) return "5d6";
+    if (n >= 7) return "4d6";
+    if (n >= 5) return "3d6";
+    if (n >= 3) return "2d6";
+    return "1d6";
+  }
+  if (classeId === "predador_estelar") {
+    if (n >= 9) return "1d10";
+    if (n >= 5) return "1d8";
+    return "1d6";
+  }
+  return c.bonus_dano_dado;
 }
 
 /**
